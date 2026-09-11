@@ -73,9 +73,30 @@ the environment; `.env` is git-ignored.
 3. **Simulation depth ✅** — general scenario engines, Monte Carlo (percentiles,
    P(loss), sensitivity), tornado analysis, scenario comparison
    (`/simulations/monte-carlo|sensitivity|compare`, `docs/simulation.md`).
-4. AI assistant (LLM abstraction + tool-calling, explanation only).
-5. Historical documents (OCR provider, extraction, review queue).
-6. Market intelligence. 7. News→impact. 8. Advanced agents.
+4. **AI assistant ✅** — provider-agnostic (offline rule-based default + Anthropic
+   provider), tool-calling over the real engines, never invents numbers, answers
+   tagged AI_INTERPRETATION with a traceable data-source drawer
+   (`/assistant/ask`, `docs/ai.md`).
+5. **Historical documents ✅** — pluggable OCR/Document-AI abstraction, fuzzy
+   customer/product matching (no auto-merge below threshold), arithmetic
+   validation, confidence scoring, and a review queue that only writes VERIFIED
+   invoices into the books on manager approval (`/documents`, `/extractions`,
+   `docs/data-ingestion.md`).
+6. **Market intelligence ✅** — real economic data (World Bank indicators, live FX,
+   Google News) with full provenance; implications labelled ASSUMPTION, never
+   fabricated (`/market/*`, `docs/market-intelligence.md`).
+7. **News → business impact ✅** — maps real signals (inflation, FX) → affected
+   suppliers/products/costs → the simulation engine, producing labelled
+   FACT/ASSUMPTION/POSSIBLE IMPACT/SIMULATION assessments + dashboard alerts
+   (`/impact/scan`, `docs/impact.md`).
+8. **Multi-agent digital twin ✅** — simulated customer/supplier/competitor/market
+   agents, calibrated from real history with explicit assumptions, played forward
+   in a Monte Carlo simulation; forecasts + strategy comparison, never presented as
+   fact (`/agents/*`, `docs/agents.md`).
+
+**All 8 phases of the specification are implemented.**
+All phases delivered. Future extensions (accounting/CRM integrations, real-time
+data, advanced forecasting, optimization) plug in behind the existing seams.
 
 ## Known limitations
 - Auth is JWT with a client-side route guard suitable for Phase 1; production

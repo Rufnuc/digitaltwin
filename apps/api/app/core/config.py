@@ -32,10 +32,19 @@ class Settings(BaseSettings):
     STORAGE_DRIVER: str = "local"
     STORAGE_LOCAL_PATH: str = "./storage"
 
-    # Provider abstractions (unused in Phase 1, present for config stability)
-    AI_PROVIDER: str = "none"
-    OCR_PROVIDER: str = "none"
-    MARKET_DATA_PROVIDER: str = "none"
+    # AI assistant (Phase 4). Default "rule_based" works offline with no key;
+    # set AI_PROVIDER=anthropic + AI_API_KEY to use a real LLM behind the same seam.
+    AI_PROVIDER: str = "rule_based"
+    AI_API_KEY: str = ""
+    AI_MODEL: str = "claude-opus-5"
+
+    # OCR / Document-AI (Phase 5). Default "structured_json" ingests machine-
+    # readable invoice docs offline; commercial providers plug in with keys.
+    OCR_PROVIDER: str = "structured_json"
+
+    # Market intelligence (Phase 6). "live" fetches REAL economic data (World Bank,
+    # live FX, Google News) on refresh; reads come from the DB. "none" disables it.
+    MARKET_DATA_PROVIDER: str = "live"
 
     # CORS
     CORS_ORIGINS: list[str] = Field(

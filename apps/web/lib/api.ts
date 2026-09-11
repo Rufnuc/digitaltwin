@@ -108,6 +108,55 @@ export const api = {
       body: JSON.stringify({ scenarios }),
     }),
 
+  // ---- Phase 4: AI assistant ----
+  assistantAsk: (question: string) =>
+    request<AssistantResponse>("/assistant/ask", {
+      method: "POST",
+      body: JSON.stringify({ question }),
+    }),
+  assistantTools: () => request<{ tools: AssistantTool[] }>("/assistant/tools"),
+
+  // ---- Phase 5: documents / OCR ingestion ----
+  uploadDocument: (file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    return requestForm<{ document: DocumentItem; extraction: Extraction }>("/documents", fd);
+  },
+  listDocuments: () => request<{ items: DocumentItem[] }>("/documents"),
+  reviewQueue: (status?: string) =>
+    request<{ items: Extraction[] }>(`/extractions${status ? `?status=${status}` : ""}`),
+  approveExtraction: (id: number, corrections: Record<string, unknown> = {}) =>
+    request<{ invoice_id: number; extraction: Extraction }>(`/extractions/${id}/approve`, {
+      method: "POST",
+      body: JSON.stringify(corrections),
+    }),
+  rejectExtraction: (id: number, notes?: string) =>
+    request<Extraction>(`/extractions/${id}/reject`, {
+      method: "POST",
+      body: JSON.stringify({ notes }),
+    }),
+
+  // ---- Phase 6: market intelligence ----
+  marketSummary: () => request<MarketSummary>("/market/summary"),
+  marketIndicators: () => request<{ items: MarketIndicator[] }>("/market/indicators"),
+  marketEvents: (minRelevance = 0) =>
+    request<{ items: MarketNews[] }>(`/market/events?min_relevance=${minRelevance}&limit=30`),
+  refreshMarket: () => request<MarketRefreshResult>("/market/refresh", { method: "POST" }),
+
+  // ---- Phase 7: news -> business impact ----
+  impactScan: (createAlerts = true, assumptions: Record<string, number> = {}) =>
+    request<ImpactScanResult>("/impact/scan", {
+      method: "POST",
+      body: JSON.stringify({ create_alerts: createAlerts, assumptions }),
+    }),
+
+  // ---- Phase 8: multi-agent digital twin ----
+  agentsRoster: () => request<AgentRoster>("/agents/roster"),
+  agentSimulate: (body: unknown) =>
+    request<AgentSimResult>("/agents/simulate", { method: "POST", body: JSON.stringify(body) }),
+  agentCompare: (body: unknown) =>
+    request<AgentCompareResult>("/agents/compare", { method: "POST", body: JSON.stringify(body) }),
+
   // ---- Phase 2: analytics ----
   analyticsCustomers: () => request<CustomerIntel>("/analytics/customers"),
   analyticsProducts: () => request<ProductIntel>("/analytics/products"),
@@ -198,6 +247,165 @@ export interface Simulation {
   assumptions: Record<string, unknown>;
   warnings: string[];
   results: SimResult[];
+}
+
+// ---- Phase 8 types ----
+export interface AgentRoster {
+  agents: { agent: string; count: string; behaviour: string; calibrated_from: string }[];
+  default_assumptions: Record<string, number>;
+}
+export interface Percentiles {
+  p5: number;
+  p50: number;
+  p95: number;
+  mean: number;
+}
+export interface AgentSimResult {
+  policy: { price_change_percent: number; monthly_opex_delta: number };
+  horizon_months: number;
+  iterations: number;
+  cumulative_net_profit: Percentiles;
+  monthly_net_profit_path: { month: number; p5: number; p50: number; p95: number; mean: number }[];
+  probability_of_cumulative_loss: number;
+  expected_active_customers_end: number;
+  customers_start: number;
+  assumptions: Record<string, number>;
+  calibration: Record<string, number>;
+  provenance: { calibration: string; behaviour: string; outcome: string };
+}
+export interface AgentCompareResult {
+  strategies: {
+    name: string;
+    price_change_percent: number;
+    expected_cumulative_net_profit: number;
+    p5: number;
+    p95: number;
+    probability_of_loss: number;
+    expected_active_customers_end: number;
+  }[];
+  best_by_expected_profit: string | null;
+  calibration: Record<string, number>;
+}
+
+// ---- Phase 7 types ----
+export interface ImpactSimResult {
+  metric: string;
+  baseline: number;
+  scenario: number;
+  change_percent: number;
+}
+export interface ImpactAssessment {
+  driver: string;
+  title: string;
+  fact: { label: string; value: number; unit: string; period: string; source: string; source_url: string };
+  assumptions: Record<string, unknown>;
+  possible_impact: Record<string, unknown>;
+  lever: { field: string; value: number };
+  simulation: { results: ImpactSimResult[]; net_profit_change_percent: number };
+  risk: string;
+  recommended_action: string;
+  materiality: { net_profit_change_percent: number; material: boolean };
+  provenance: { fact: string; mapping: string; numbers: string };
+}
+export interface ImpactScanResult {
+  assessments: ImpactAssessment[];
+  alerts_created: number;
+  has_market_data: boolean;
+  note: string;
+}
+
+// ---- Phase 6 types ----
+export interface MarketIndicator {
+  indicator: string;
+  label: string;
+  value: number;
+  unit: string;
+  period: string;
+  source: string;
+  source_url: string;
+  data_origin: string;
+  implication: string | null;
+}
+export interface MarketNews {
+  id: number;
+  title: string;
+  summary: string;
+  source: string;
+  source_url: string;
+  published: string;
+  relevance: number;
+  data_origin: string;
+}
+export interface MarketSummary {
+  indicators: MarketIndicator[];
+  top_news: MarketNews[];
+  has_data: boolean;
+  note: string;
+  provenance: string;
+}
+export interface MarketRefreshResult {
+  provider: string;
+  indicators_ingested: number;
+  indicators_updated: number;
+  news_ingested: number;
+  sources: string[];
+  as_of: string;
+}
+
+// ---- Phase 5 types ----
+export interface DocumentItem {
+  id: number;
+  filename: string | null;
+  content_type: string | null;
+  status: string;
+  ocr_confidence: number | null;
+  created_at: string;
+}
+export interface Extraction {
+  id: number;
+  document_id: number;
+  status: string;
+  overall_confidence: number | null;
+  extracted: {
+    invoice_number?: string;
+    invoice_date?: string;
+    customer_name?: string;
+    currency?: string;
+    tax?: number;
+    discount?: number;
+    lines?: { description: string; quantity: number; unit_price: number; line_total: number }[];
+  };
+  matched: {
+    customer?: { id: number | null; confidence: number; matched_text: string | null };
+    lines?: { product_id: number | null; confidence: number; matched_text: string | null }[];
+  };
+  validation: { arithmetic_ok: boolean; issues: string[] };
+  created_invoice_id: number | null;
+  review_notes: string | null;
+  created_at: string;
+}
+
+// ---- Phase 4 types ----
+export interface AssistantToolCall {
+  name: string;
+  args: Record<string, unknown>;
+  provenance: string;
+  result: Record<string, unknown>;
+}
+export interface AssistantResponse {
+  question: string;
+  answer: string;
+  provider: string;
+  model: string | null;
+  provenance: string;
+  tool_calls: AssistantToolCall[];
+  actions_taken: string[];
+  disclaimer: string;
+}
+export interface AssistantTool {
+  name: string;
+  description: string;
+  provenance: string;
 }
 
 // ---- Phase 3 types ----

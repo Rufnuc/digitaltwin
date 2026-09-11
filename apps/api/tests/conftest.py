@@ -15,6 +15,10 @@ if os.path.exists(_TMP_DB):
     os.remove(_TMP_DB)
 os.environ["DATABASE_URL"] = f"sqlite:///{_TMP_DB}"
 os.environ["AUTH_SECRET"] = "test-secret"
+# Deterministic providers for tests (don't depend on a local .env).
+os.environ["OCR_PROVIDER"] = "structured_json"
+os.environ["AI_PROVIDER"] = "rule_based"
+os.environ["MARKET_DATA_PROVIDER"] = "none"
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402

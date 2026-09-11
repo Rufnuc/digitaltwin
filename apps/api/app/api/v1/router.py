@@ -5,11 +5,16 @@ from fastapi import APIRouter
 
 from app.api.crud import build_crud_router
 from app.api.v1.endpoints import (
+    agents,
     analytics,
+    assistant,
     auth,
     dashboard,
+    documents,
+    impact,
     imports,
     invoices,
+    market,
     meta,
     simulations,
 )
@@ -31,6 +36,11 @@ api_router.include_router(invoices.router, prefix="/invoices")
 api_router.include_router(simulations.router)
 api_router.include_router(analytics.router)
 api_router.include_router(imports.router)
+api_router.include_router(assistant.router)
+api_router.include_router(documents.router)
+api_router.include_router(market.router)
+api_router.include_router(impact.router)
+api_router.include_router(agents.router)
 api_router.include_router(meta.router)
 
 # Generic CRUD resources

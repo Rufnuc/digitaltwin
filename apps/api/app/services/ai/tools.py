@@ -1,27 +1,42 @@
 """Assistant tool registry (spec §32).
 
-Each tool is a thin, read-only/compute-only wrapper over the existing analytics
-and simulation services. The assistant obtains every number by calling these
-tools — it never reads the database directly and never invents values. Tool
-outputs are the sole source of figures in any answer.
+Read/compute tools are thin wrappers over the analytics and simulation services;
+the assistant obtains every number by calling them and never invents values.
+
+The assistant is also a **connected control layer**: `mutating` action tools let
+it make changes across the platform (create/update records, refresh market data,
+run and save simulations). Every action is role-gated to the current user's
+permissions and audit-logged.
 """
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from datetime import date
 
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from app.core.enums import AuditAction, DataOrigin, Role
+from app.core.security import role_at_least
+from app.models.customer import Customer
+from app.models.product import Product, ProductPriceHistory
+from app.models.simulation import SimulationRun
+from app.services import audit
+from app.services.agents import simulation as agent_sim
 from app.services.analytics import baseline_economics, dashboard_summary
 from app.services.bi.customers import customer_intelligence
 from app.services.bi.data_quality import data_quality_report
 from app.services.bi.financials import monthly_pnl
 from app.services.bi.products import product_intelligence
 from app.services.bi.suppliers import supplier_intelligence
+from app.services.impact import engine as impact_engine
+from app.services.market_intelligence import ingest as market_ingest
 from app.services.simulation import engines, price_change  # noqa: F401  (register engines)
 from app.services.simulation.base import ScenarioRequest, get_engine
 from app.services.simulation.compare import compare_scenarios
 from app.services.simulation.montecarlo import run_monte_carlo
+from app.services.simulation.runner import run_simulation
 from app.services.simulation.sensitivity import default_variations, tornado
 
 
@@ -33,6 +48,9 @@ class ToolDef:
     handler: Callable[..., dict]
     # Roughly: does this tool produce a FORECAST (uncertain) or MODEL_OUTPUT?
     provenance: str = "MODEL_OUTPUT"
+    # Action tools change data; they are role-gated and audit-logged.
+    mutating: bool = False
+    min_role: str = Role.VIEWER.value
 
 
 # --------------------------------------------------------------------------- #
@@ -154,6 +172,116 @@ def _compare_prices(
 
 
 # --------------------------------------------------------------------------- #
+# Action handlers (mutating) — the assistant's connected control layer.
+# --------------------------------------------------------------------------- #
+def _next_code(db: Session, model, prefix: str) -> str:
+    n = int(db.scalar(select(func.count(model.id))) or 0)
+    return f"{prefix}-{n + 1:04d}"
+
+
+def _create_customer(db: Session, name: str, location: str | None = None,
+                     customer_type: str = "RETAIL") -> dict:
+    c = Customer(code=_next_code(db, Customer, "CUS"), name=name, location=location,
+                 customer_type=customer_type, data_origin=DataOrigin.REAL.value)
+    db.add(c)
+    db.commit()
+    db.refresh(c)
+    return {"created": "customer", "id": c.id, "code": c.code, "name": c.name}
+
+
+def _find_customer(db: Session, query: str):
+    q = (query or "").strip()
+    return db.scalar(
+        select(Customer).where(or_(Customer.code == q, Customer.name.ilike(f"%{q}%")))
+    )
+
+
+def _set_customer_status(db: Session, customer: str, status: str) -> dict:
+    c = _find_customer(db, customer)
+    if not c:
+        return {"error": f"customer '{customer}' not found"}
+    old, c.status = c.status, status.upper()
+    db.commit()
+    return {"updated": "customer", "id": c.id, "name": c.name,
+            "status_from": old, "status_to": c.status}
+
+
+def _create_product(db: Session, name: str, purchase_cost: float, selling_price: float,
+                    category: str | None = None) -> dict:
+    p = Product(code=_next_code(db, Product, "PRD"), name=name, purchase_cost=purchase_cost,
+                selling_price=selling_price, category=category, data_origin=DataOrigin.REAL.value)
+    db.add(p)
+    db.commit()
+    db.refresh(p)
+    return {"created": "product", "id": p.id, "code": p.code, "name": p.name,
+            "selling_price": float(p.selling_price)}
+
+
+def _find_product(db: Session, query: str):
+    q = (query or "").strip()
+    return db.scalar(select(Product).where(
+        or_(Product.code == q, Product.part_number == q, Product.name.ilike(f"%{q}%"))
+    ))
+
+
+def _set_product_price(db: Session, product: str, selling_price: float) -> dict:
+    p = _find_product(db, product)
+    if not p:
+        return {"error": f"product '{product}' not found"}
+    old = float(p.selling_price) if p.selling_price is not None else None
+    p.selling_price = selling_price
+    db.add(ProductPriceHistory(product_id=p.id, effective_date=date.today(),
+                               selling_price=selling_price, purchase_cost=p.purchase_cost))
+    db.commit()
+    return {"updated": "product", "id": p.id, "name": p.name,
+            "price_from": old, "price_to": selling_price}
+
+
+def _refresh_market(db: Session) -> dict:
+    return market_ingest.refresh_market_data(db)
+
+
+def _scan_impact(db: Session) -> dict:
+    r = impact_engine.scan(db)
+    return {"assessments": len(r["assessments"]), "alerts_created": r["alerts_created"],
+            "has_market_data": r["has_market_data"]}
+
+
+def _save_simulation(db: Session, scenario_type: str = "price_change", change_percent: float = 0.0,
+                     price_elasticity: float = -0.8, name: str | None = None) -> dict:
+    param = _SCENARIO_PARAM.get(scenario_type, "price_change_percent")
+    run = SimulationRun(
+        name=name or f"{scenario_type} {change_percent:+g}%", scenario_type=scenario_type,
+        parameters={param: change_percent}, assumptions={"price_elasticity": price_elasticity},
+        horizon_months=12, status="PENDING",
+    )
+    db.add(run)
+    db.commit()
+    db.refresh(run)
+    run = run_simulation(db, run)
+    return {
+        "created": "simulation", "id": run.id, "status": run.status,
+        "results": [
+            {"metric": r.metric, "baseline": r.baseline.get("value"),
+             "scenario": r.scenario.get("value"), "change_percent": r.delta.get("percent")}
+            for r in run.results
+        ],
+    }
+
+
+def _agent_forecast(db: Session, price_change_percent: float = 0.0, horizon_months: int = 12,
+                    iterations: int = 300) -> dict:
+    res = agent_sim.simulate(db, {"price_change_percent": price_change_percent},
+                             horizon_months, iterations, None)
+    if res is None:
+        return {"error": "no customer data to calibrate agents"}
+    return {"cumulative_net_profit": res["cumulative_net_profit"],
+            "probability_of_loss": res["probability_of_cumulative_loss"],
+            "expected_active_customers_end": res["expected_active_customers_end"],
+            "customers_start": res["customers_start"]}
+
+
+# --------------------------------------------------------------------------- #
 # Registry.
 # --------------------------------------------------------------------------- #
 TOOLS: list[ToolDef] = [
@@ -178,8 +306,10 @@ TOOLS: list[ToolDef] = [
         {
             "type": "object",
             "properties": {
-                "scenario_type": {"type": "string",
-                                  "enum": ["price_change", "demand_change", "supplier_cost_change"]},
+                "scenario_type": {
+                    "type": "string",
+                    "enum": ["price_change", "demand_change", "supplier_cost_change"],
+                },
                 "change_percent": {"type": "number",
                                    "description": "percent change, e.g. 10 or -5"},
                 "price_elasticity": {"type": "number",
@@ -223,22 +353,100 @@ TOOLS: list[ToolDef] = [
         },
         _compare_prices,
     ),
+    # ---- Action tools (mutating; role-gated + audit-logged) ----
+    ToolDef(
+        "create_customer", "Create a new customer record.",
+        {"type": "object",
+         "properties": {"name": {"type": "string"}, "location": {"type": "string"},
+                        "customer_type": {"type": "string"}},
+         "required": ["name"]},
+        _create_customer, provenance="REAL", mutating=True, min_role=Role.STAFF.value,
+    ),
+    ToolDef(
+        "set_customer_status", "Set a customer's status (e.g. ACTIVE / INACTIVE) by name or code.",
+        {"type": "object",
+         "properties": {"customer": {"type": "string"}, "status": {"type": "string"}},
+         "required": ["customer", "status"]},
+        _set_customer_status, provenance="REAL", mutating=True, min_role=Role.STAFF.value,
+    ),
+    ToolDef(
+        "create_product", "Create a new product with cost and selling price.",
+        {"type": "object",
+         "properties": {"name": {"type": "string"}, "purchase_cost": {"type": "number"},
+                        "selling_price": {"type": "number"}, "category": {"type": "string"}},
+         "required": ["name", "purchase_cost", "selling_price"]},
+        _create_product, provenance="REAL", mutating=True, min_role=Role.STAFF.value,
+    ),
+    ToolDef(
+        "set_product_price", "Change a product's selling price by name or code.",
+        {"type": "object",
+         "properties": {"product": {"type": "string"}, "selling_price": {"type": "number"}},
+         "required": ["product", "selling_price"]},
+        _set_product_price, provenance="REAL", mutating=True, min_role=Role.STAFF.value,
+    ),
+    ToolDef(
+        "refresh_market_data",
+        "Fetch the latest real economic data (World Bank, FX) and news, and store it.",
+        {"type": "object", "properties": {}},
+        _refresh_market, provenance="REAL", mutating=True, min_role=Role.ANALYST.value,
+    ),
+    ToolDef(
+        "run_impact_scan",
+        "Assess how current market signals could affect the business and raise dashboard alerts.",
+        {"type": "object", "properties": {}},
+        _scan_impact, provenance="MODEL_OUTPUT", mutating=True, min_role=Role.ANALYST.value,
+    ),
+    ToolDef(
+        "save_simulation",
+        "Create and run a scenario, saving it to the simulations history.",
+        {"type": "object",
+         "properties": {"scenario_type": {"type": "string"}, "change_percent": {"type": "number"},
+                        "price_elasticity": {"type": "number"}, "name": {"type": "string"}},
+         "required": ["scenario_type", "change_percent"]},
+        _save_simulation, provenance="MODEL_OUTPUT", mutating=True, min_role=Role.ANALYST.value,
+    ),
+    ToolDef(
+        "run_agent_forecast",
+        "Run the multi-agent digital-twin forecast for a price policy.",
+        {"type": "object", "properties": {"price_change_percent": {"type": "number"}}},
+        _agent_forecast, provenance="FORECAST", mutating=False, min_role=Role.VIEWER.value,
+    ),
 ]
 
 TOOLS_BY_NAME: dict[str, ToolDef] = {t.name: t for t in TOOLS}
 
 
-def execute_tool(db: Session, name: str, args: dict) -> dict:
+def _audit_action(name: str) -> AuditAction:
+    if name.startswith("create_"):
+        return AuditAction.CREATE
+    if name.startswith("set_"):
+        return AuditAction.UPDATE
+    return AuditAction.RUN_SIMULATION
+
+
+def execute_tool(db: Session, name: str, args: dict, user=None) -> dict:
     tool = TOOLS_BY_NAME.get(name)
     if tool is None:
         return {"error": f"unknown tool '{name}'"}
+    if tool.mutating:
+        if user is None:
+            return {"error": "this action requires an authenticated user"}
+        if not role_at_least(user.role, tool.min_role):
+            return {"error": f"'{name}' requires role {tool.min_role} or higher "
+                             f"(you are {user.role})"}
     try:
-        return tool.handler(db, **(args or {}))
+        result = tool.handler(db, **(args or {}))
     except TypeError as e:
         return {"error": f"bad arguments for {name}: {e}"}
+    if tool.mutating and user is not None and "error" not in result:
+        audit.record(db, action=_audit_action(name), user_id=user.id,
+                     entity_type=f"assistant:{name}", summary=str(result)[:400])
+    return result
 
 
 def tool_catalog() -> list[dict]:
     return [
-        {"name": t.name, "description": t.description, "provenance": t.provenance} for t in TOOLS
+        {"name": t.name, "description": t.description, "provenance": t.provenance,
+         "mutating": t.mutating, "min_role": t.min_role}
+        for t in TOOLS
     ]

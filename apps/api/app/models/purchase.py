@@ -18,7 +18,7 @@ class Purchase(Base, TimestampMixin, ProvenanceMixin):
     supplier_id: Mapped[int | None] = mapped_column(
         ForeignKey("suppliers.id"), index=True, nullable=True
     )
-    currency: Mapped[str] = mapped_column(String(3), default="USD")
+    currency: Mapped[str] = mapped_column(String(3), default="NGN")
     subtotal: Mapped[float] = mapped_column(MONEY, default=0)
     tax: Mapped[float] = mapped_column(MONEY, default=0)
     total: Mapped[float] = mapped_column(MONEY, default=0)

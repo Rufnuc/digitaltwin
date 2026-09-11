@@ -35,6 +35,11 @@ DEMO = DataOrigin.DEMO.value
 VERIFIED = VerificationStatus.VERIFIED.value
 SEED = 42
 
+# Naira magnitude factor. Applied uniformly to every monetary random so demo
+# figures read as realistic Nigerian Naira amounts while all ratios/margins
+# (and therefore analytics/simulation results) stay identical.
+SCALE = 600
+
 # Demo login accounts (dev only — documented in README).
 DEMO_USERS = [
     ("owner@demo.example.com", "Demo Owner", "owner12345", Role.OWNER),
@@ -79,7 +84,7 @@ def seed(db: Session) -> dict:
         db.add(Employee(code=f"EMP-{i+1:03d}", name=f"Employee {i+1}",
                         role_title=rnd.choice(["Sales", "Storekeeper", "Manager", "Driver"]),
                         branch_id=branches[i % len(branches)].id,
-                        monthly_cost=round(rnd.uniform(400, 1200), 2),
+                        monthly_cost=round(rnd.uniform(400, 1200) * SCALE, 2),
                         hired_on="2015-01-10"))
     db.commit()
 
@@ -88,7 +93,7 @@ def seed(db: Session) -> dict:
     for i in range(5):
         s = Supplier(code=f"SUP-{i+1:03d}", name=f"Supplier {i+1}",
                      location=rnd.choice(["Local", "Import - Asia", "Import - Europe"]),
-                     currency="USD", payment_terms=rnd.choice(["NET30", "NET60", "COD"]),
+                     currency="NGN", payment_terms=rnd.choice(["NET30", "NET60", "COD"]),
                      lead_time_days=rnd.randint(3, 45),
                      reliability_score=round(rnd.uniform(0.7, 0.99), 2))
         _p(s)
@@ -99,7 +104,7 @@ def seed(db: Session) -> dict:
     # --- Products (cost < price for positive margin) ---
     products = []
     for i in range(30):
-        cost = round(rnd.uniform(5, 200), 2)
+        cost = round(rnd.uniform(5, 200) * SCALE, 2)
         price = round(cost * rnd.uniform(1.25, 1.9), 2)
         noun = PRODUCT_NOUNS[i % len(PRODUCT_NOUNS)]
         pr = Product(code=f"PRD-{i+1:04d}", part_number=f"PN{1000+i}",
@@ -143,7 +148,7 @@ def seed(db: Session) -> dict:
             inv_date = month_start + timedelta(days=rnd.randint(0, 26))
             inv = Invoice(invoice_number=f"INV-{inv_date.year}-{inv_no:05d}",
                           invoice_date=inv_date, customer_id=cust.id,
-                          branch_id=rnd.choice(branches).id, currency="USD",
+                          branch_id=rnd.choice(branches).id, currency="NGN",
                           discount=0, tax=0)
             _p(inv)
             subtotal = 0.0
@@ -191,10 +196,10 @@ def seed(db: Session) -> dict:
         for cat in exp_categories:
             # Right-sized so total opex sits below gross profit (a solvent demo
             # business). Salaries are the largest line; the rest are smaller.
-            base = 2200 if cat == "Salaries" else rnd.uniform(150, 900)
+            base = (2200 if cat == "Salaries" else rnd.uniform(150, 900)) * SCALE
             e = Expense(expense_date=month_start, category=cat,
                         description=f"{cat} for {month_start:%Y-%m}",
-                        amount=round(base * rnd.uniform(0.85, 1.15), 2), currency="USD",
+                        amount=round(base * rnd.uniform(0.85, 1.15), 2), currency="NGN",
                         branch_id=branches[0].id)
             _p(e)
             db.add(e)

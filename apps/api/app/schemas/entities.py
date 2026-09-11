@@ -53,7 +53,7 @@ class SupplierBase(BaseModel):
     code: str
     name: str
     location: str | None = None
-    currency: str = "USD"
+    currency: str = "NGN"
     payment_terms: str | None = None
     lead_time_days: int | None = None
     status: str = "ACTIVE"
@@ -189,7 +189,7 @@ class ExpenseBase(BaseModel):
     category: str
     description: str | None = None
     amount: float
-    currency: str = "USD"
+    currency: str = "NGN"
     branch_id: int | None = None
 
 
@@ -253,7 +253,7 @@ class InvoiceCreate(BaseModel):
     invoice_date: date
     customer_id: int | None = None
     branch_id: int | None = None
-    currency: str = "USD"
+    currency: str = "NGN"
     discount: float = 0
     tax: float = 0
     lines: list[InvoiceLineIn] = []

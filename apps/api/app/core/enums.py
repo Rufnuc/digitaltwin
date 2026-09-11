@@ -128,3 +128,4 @@ class AuditAction(str, Enum):
     RUN_SIMULATION = "RUN_SIMULATION"
     IMPORT = "IMPORT"
     VERIFY = "VERIFY"
+    AI_QUERY = "AI_QUERY"

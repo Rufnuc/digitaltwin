@@ -1,16 +1,52 @@
-# AI (Phase 4 — interface only)
+# AI Business Assistant (Phase 4)
 
-No LLM is wired in Phase 1. The seam lives in `app/services/ai/base.py`:
-`AIProvider` (provider-agnostic chat/tool interface), `ToolSpec`, `AIMessage`,
-and a `NullAIProvider` that refuses to fabricate output.
+An assistant that answers plain-language business questions. It **interprets
+intent and explains results**; it obtains every number by calling tools that hit
+the deterministic analytics/simulation engines, and it **never invents figures**
+(spec §2, §32, §50, §51).
 
-## The rule this seam enforces
+## Architecture
 
-The assistant will **interpret intent** and **explain results**; it will call
-tools (`query_*`, `run_simulation`, `run_monte_carlo`, `compare_scenarios`,
-`get_business_alerts`, …) to obtain data and numbers. It will **never** invent a
-database value or a calculation. AI actions will be audit-logged
-(`audit_logs`, action = AI-specific) and answers will cite provenance.
+```
+question -> provider.answer(question, tools, execute, system)
+              provider decides which tool(s) to call
+              execute(name, args) -> tool hits a real service -> data
+            -> natural-language answer composed FROM the tool results
+```
 
-Provider selection is by `AI_PROVIDER` env var; the application is never
-hard-coded to one vendor (spec §4).
+- **Tools** (`services/ai/tools.py`) — read/compute-only wrappers over existing
+  services: `get_business_summary`, `get_financials`, `get_customer_intelligence`,
+  `get_product_intelligence`, `get_supplier_intelligence`, `get_data_quality`,
+  `run_scenario`, `run_monte_carlo`, `run_sensitivity`, `compare_price_strategies`.
+  Each carries a provenance tag (`MODEL_OUTPUT` or `FORECAST`).
+- **Providers** (`services/ai/providers/`) — behind one seam:
+  - `rule_based` (**default, offline**) — a transparent intent router that maps
+    questions to tools and templates the answer *entirely from tool output*, so
+    the "never invent numbers" guarantee is trivially true and the assistant works
+    with zero API keys or external calls.
+  - `anthropic` — a real LLM using a manual tool-use loop over the Anthropic SDK
+    (lazy-imported). Enabled with `AI_PROVIDER=anthropic` + `AI_API_KEY`
+    (`AI_MODEL` defaults to `claude-opus-5`). The system prompt enforces the rules
+    and the same tools back it.
+- **Facade** (`services/ai/assistant.py`) — selects the provider, tags the prose as
+  `AI_INTERPRETATION`, and writes an `AI_QUERY` audit-log entry with the tools used.
+
+## API
+
+```
+POST /api/v1/assistant/ask    { question }  -> answer + provider + tool_calls + disclaimer
+GET  /api/v1/assistant/tools                -> the tool catalogue
+```
+
+Available to any authenticated user (all tools are read/compute-only).
+
+## Provenance in the response
+
+- `provenance: "AI_INTERPRETATION"` on the prose.
+- Each `tool_calls[]` entry carries the tool's own `provenance` (`MODEL_OUTPUT` /
+  `FORECAST`) and its full result — surfaced in the UI's "data sources" drawer so
+  every figure is traceable to the engine that produced it.
+
+## What the assistant will not do
+Invent or estimate numbers, present a Monte Carlo forecast as a single certainty,
+or imply demo data is real. If a needed number has no tool, it says so.

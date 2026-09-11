@@ -9,6 +9,7 @@ from app.models.events import (  # noqa: F401
     OwnerKnowledge,
 )
 from app.models.expense import Expense  # noqa: F401
+from app.models.extraction import ExtractedInvoice  # noqa: F401
 from app.models.inventory import Inventory  # noqa: F401
 from app.models.invoice import Invoice, InvoiceLine  # noqa: F401
 from app.models.organization import Branch, Employee  # noqa: F401
@@ -42,6 +43,7 @@ __all__ = [
     "DataSource",
     "DataImport",
     "Document",
+    "ExtractedInvoice",
     "SimulationRun",
     "SimulationResult",
     "AuditLog",

@@ -1,0 +1,101 @@
+"""AI business-assistant facade (spec §32).
+
+Selects a provider, runs the tool-using answer, tags the natural-language output
+as AI_INTERPRETATION, and audit-logs the AI action. The provider abstraction means
+the app is never hard-coded to one LLM vendor; the default `rule_based` provider
+works offline with no API key.
+"""
+from __future__ import annotations
+
+from sqlalchemy.orm import Session
+
+from app.core.config import settings
+from app.core.enums import AuditAction, DataOrigin
+from app.services import audit
+from app.services.ai.providers.rule_based import RuleBasedProvider
+from app.services.ai.tools import TOOLS, TOOLS_BY_NAME, execute_tool
+from app.services.ai.types import AssistantProvider, AssistantResult
+
+SYSTEM_PROMPT = """You are the analyst assistant inside DigitalTwin, a business \
+decision-support platform for an established Nigerian business. Currency is the \
+Nigerian Naira (₦).
+
+Absolute rules:
+- You NEVER invent, estimate, or calculate numbers yourself. Every figure you state \
+must come from a tool result. If no tool provides a needed number, say so.
+- Interpret the user's intent, call the appropriate tool(s) to get real data or to \
+run the deterministic simulation engines, then explain the results plainly.
+- Distinguish clearly between FACT (recorded data), ASSUMPTION (e.g. price \
+elasticity), MODEL OUTPUT (deterministic projection), and FORECAST (Monte Carlo, \
+which has uncertainty — never present it as a single certain number).
+- If the data is demo/synthetic or insufficient, say so rather than implying it is \
+real or certain.
+- Be concise and specific. Prefer the exact figures from tool outputs.
+
+You can also TAKE ACTION when asked — create or update customers/products, change \
+prices, refresh market data, and run or save simulations — using the action tools. \
+Actions run with the user's own permissions and are audit-logged; if the user lacks \
+permission, report that plainly. After an action, confirm exactly what changed."""
+
+
+def get_provider() -> AssistantProvider:
+    provider = (settings.AI_PROVIDER or "rule_based").lower()
+    if provider == "anthropic" and settings.AI_API_KEY:
+        # Import lazily so the optional `anthropic` dependency isn't required
+        # unless this provider is actually selected.
+        from app.services.ai.providers.anthropic_provider import AnthropicProvider
+
+        return AnthropicProvider()
+    # Default: fully offline, deterministic router.
+    return RuleBasedProvider()
+
+
+def ask(db: Session, question: str, user=None) -> dict:
+    """Answer a question and, when asked, take action. Actions run with the
+    current user's permissions (role-gated) and are audit-logged."""
+    provider = get_provider()
+
+    def _execute(name: str, args: dict) -> dict:
+        return execute_tool(db, name, args, user)
+
+    result: AssistantResult = provider.answer(question, TOOLS, _execute, SYSTEM_PROMPT)
+
+    tool_trace = [
+        {
+            "name": c.name,
+            "args": c.args,
+            "provenance": (
+                TOOLS_BY_NAME[c.name].provenance if c.name in TOOLS_BY_NAME else "UNKNOWN"
+            ),
+            "mutating": TOOLS_BY_NAME[c.name].mutating if c.name in TOOLS_BY_NAME else False,
+            "result": c.result,
+        }
+        for c in result.tool_calls
+    ]
+    actions_taken = [
+        c["name"] for c in tool_trace
+        if c["mutating"] and not (isinstance(c["result"], dict) and "error" in c["result"])
+    ]
+
+    audit.record(
+        db,
+        action=AuditAction.AI_QUERY,
+        user_id=user.id if user else None,
+        entity_type="assistant",
+        summary=f"[{result.provider}] {question[:200]}",
+        new_value={"tools": [c["name"] for c in tool_trace], "actions": actions_taken},
+    )
+
+    return {
+        "question": question,
+        "answer": result.answer,
+        "provider": result.provider,
+        "model": result.model,
+        # The prose is an AI interpretation; the numbers within it are sourced
+        # from the tool results (each carrying its own MODEL_OUTPUT / FORECAST tag).
+        "provenance": DataOrigin.AI_INTERPRETATION.value,
+        "tool_calls": tool_trace,
+        "actions_taken": actions_taken,
+        "disclaimer": "Figures come from the business data and simulation engines; "
+                      "the explanation is AI-generated. Simulations rely on stated assumptions.",
+    }

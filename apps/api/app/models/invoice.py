@@ -19,7 +19,7 @@ class Invoice(Base, TimestampMixin, ProvenanceMixin):
         ForeignKey("customers.id"), index=True, nullable=True
     )
     branch_id: Mapped[int | None] = mapped_column(ForeignKey("branches.id"), nullable=True)
-    currency: Mapped[str] = mapped_column(String(3), default="USD")
+    currency: Mapped[str] = mapped_column(String(3), default="NGN")
 
     subtotal: Mapped[float] = mapped_column(MONEY, default=0)
     discount: Mapped[float] = mapped_column(MONEY, default=0)

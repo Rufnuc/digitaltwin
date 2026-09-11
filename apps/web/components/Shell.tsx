@@ -16,16 +16,22 @@ const NAV = [
   { href: "/inventory", label: "Inventory" },
   { href: "/expenses", label: "Expenses" },
   { href: "/simulations", label: "Simulations" },
+  { href: "/documents", label: "Documents" },
+  { href: "/market", label: "Market Intel" },
+  { href: "/impact", label: "News → Impact" },
+  { href: "/agents", label: "Digital Twin" },
+  { href: "/assistant", label: "AI Assistant" },
 ];
 
-// Later phases (rendered disabled to show the roadmap without pretending to work).
-const FUTURE = ["Market Intelligence", "AI Assistant", "Documents"];
+// Later phases (rendered disabled). Empty now that all phases are implemented.
+const FUTURE: string[] = [];
 
 export function Shell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [ready, setReady] = useState(false);
   const [role, setRole] = useState<string | null>(null);
+  const [open, setOpen] = useState(true);
 
   useEffect(() => {
     if (!getToken()) {
@@ -33,25 +39,76 @@ export function Shell({ children }: { children: React.ReactNode }) {
       return;
     }
     setRole(getRole());
+    // Restore last menu state; default open on wide screens, closed on narrow.
+    let initial = true;
+    try {
+      const saved = window.localStorage.getItem("dt_menu_open");
+      initial = saved != null ? saved === "1" : window.innerWidth >= 768;
+    } catch {
+      /* ignore */
+    }
+    setOpen(initial);
     setReady(true);
   }, [router]);
+
+  function toggle() {
+    setOpen((v) => {
+      const next = !v;
+      try {
+        window.localStorage.setItem("dt_menu_open", next ? "1" : "0");
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  }
 
   if (!ready) return <div className="p-8 text-sm text-muted">Loading…</div>;
 
   return (
-    <div className="flex min-h-screen">
-      <aside className="flex w-56 flex-col border-r border-line bg-paper">
-        <div className="border-b border-line px-4 py-4">
-          <div className="text-sm font-semibold">DigitalTwin</div>
-          <div className="text-[11px] text-muted">Business Decision Support</div>
+    <div className="min-h-screen bg-wash">
+      {/* Top bar with the menu toggle — always visible */}
+      <header className="sticky top-0 z-30 flex h-12 items-center gap-3 border-b border-line bg-paper px-3">
+        <button
+          onClick={toggle}
+          aria-label={open ? "Close menu" : "Open menu"}
+          aria-expanded={open}
+          className="flex h-8 w-8 items-center justify-center rounded border border-line hover:bg-wash"
+        >
+          <span className="text-lg leading-none">{open ? "✕" : "☰"}</span>
+        </button>
+        <div className="text-sm font-semibold">DigitalTwin</div>
+        <div className="hidden text-[11px] text-muted sm:block">Business Decision Support</div>
+        <div className="ml-auto text-[11px] text-muted">
+          <span className="font-mono text-ink">{role}</span>
         </div>
-        <nav className="flex-1 p-2">
+      </header>
+
+      {/* Backdrop (mobile) when open */}
+      {open && (
+        <div
+          onClick={toggle}
+          className="fixed inset-0 top-12 z-10 bg-black/20 md:hidden"
+          aria-hidden
+        />
+      )}
+
+      {/* Sidebar — slides in/out */}
+      <aside
+        className={`fixed left-0 top-12 z-20 flex h-[calc(100vh-3rem)] w-60 transform flex-col border-r border-line bg-paper transition-transform duration-200 ${
+          open ? "translate-x-0" : "-translate-x-full"
+        }`}
+      >
+        <nav className="flex-1 overflow-y-auto p-2">
           {NAV.map((item) => {
             const active = pathname === item.href;
             return (
               <Link
                 key={item.href}
                 href={item.href}
+                onClick={() => {
+                  if (window.innerWidth < 768) toggle();
+                }}
                 className={`block rounded px-3 py-2 text-sm ${
                   active ? "bg-ink text-paper" : "text-ink hover:bg-wash"
                 }`}
@@ -60,19 +117,20 @@ export function Shell({ children }: { children: React.ReactNode }) {
               </Link>
             );
           })}
-          <div className="mt-4 px-3 text-[10px] uppercase tracking-wide text-muted">
-            Later phases
-          </div>
-          {FUTURE.map((label) => (
-            <div key={label} className="cursor-not-allowed px-3 py-2 text-sm text-line">
-              {label}
-            </div>
-          ))}
+          {FUTURE.length > 0 && (
+            <>
+              <div className="mt-4 px-3 text-[10px] uppercase tracking-wide text-muted">
+                Later phases
+              </div>
+              {FUTURE.map((label) => (
+                <div key={label} className="cursor-not-allowed px-3 py-2 text-sm text-line">
+                  {label}
+                </div>
+              ))}
+            </>
+          )}
         </nav>
         <div className="border-t border-line p-3 text-xs">
-          <div className="mb-2 text-muted">
-            Role: <span className="font-mono text-ink">{role}</span>
-          </div>
           <button
             onClick={() => {
               clearSession();
@@ -84,7 +142,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
           </button>
         </div>
       </aside>
-      <main className="flex-1 bg-wash">
+
+      {/* Content — shifts right when the menu is open on desktop */}
+      <main className={`transition-all duration-200 ${open ? "md:ml-60" : "ml-0"}`}>
         <div className="mx-auto max-w-6xl p-6">{children}</div>
       </main>
     </div>
