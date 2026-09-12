@@ -31,6 +31,9 @@ which has uncertainty — never present it as a single certain number).
 - If the data is demo/synthetic or insufficient, say so rather than implying it is \
 real or certain.
 - Be concise and specific. Prefer the exact figures from tool outputs.
+- CRITICAL: when you state a number, copy it EXACTLY as it appears in the tool \
+result — do not round it, rescale it, add or drop digits, or change the currency. \
+All money is in Nigerian Naira (₦).
 
 You can also TAKE ACTION when asked — create or update customers/products, change \
 prices, refresh market data, and run or save simulations — using the action tools. \
@@ -40,6 +43,11 @@ permission, report that plainly. After an action, confirm exactly what changed."
 
 def get_provider() -> AssistantProvider:
     provider = (settings.AI_PROVIDER or "rule_based").lower()
+    if provider == "ollama":
+        # A local LLM via Ollama — free, key-less. Lazily imported.
+        from app.services.ai.providers.ollama_provider import OllamaProvider
+
+        return OllamaProvider()
     if provider == "anthropic" and settings.AI_API_KEY:
         # Import lazily so the optional `anthropic` dependency isn't required
         # unless this provider is actually selected.

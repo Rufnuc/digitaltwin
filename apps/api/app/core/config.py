@@ -32,11 +32,15 @@ class Settings(BaseSettings):
     STORAGE_DRIVER: str = "local"
     STORAGE_LOCAL_PATH: str = "./storage"
 
-    # AI assistant (Phase 4). Default "rule_based" works offline with no key;
-    # set AI_PROVIDER=anthropic + AI_API_KEY to use a real LLM behind the same seam.
+    # AI assistant (Phase 4). Providers behind one seam:
+    #   rule_based — offline deterministic router (no LLM, no key)
+    #   ollama     — a local LLM via Ollama (free, no key; needs Ollama running)
+    #   anthropic  — Claude via API key
     AI_PROVIDER: str = "rule_based"
     AI_API_KEY: str = ""
     AI_MODEL: str = "claude-opus-5"
+    OLLAMA_BASE_URL: str = "http://localhost:11434"
+    OLLAMA_MODEL: str = "qwen2.5:7b"
 
     # OCR / Document-AI (Phase 5). Default "structured_json" ingests machine-
     # readable invoice docs offline; commercial providers plug in with keys.
