@@ -3,25 +3,29 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import React, { useEffect, useState } from "react";
 import { clearSession, getRole, getToken } from "@/lib/api";
+import { type Role, roleAtLeast } from "@/lib/roles";
+import { getStoredTheme, resolveDark, setTheme } from "@/lib/theme";
 
-const NAV = [
+// minRole gates a nav item to the user's tier (undefined = everyone).
+const NAV: { href: string; label: string; minRole?: Role }[] = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/analytics", label: "Analytics" },
   { href: "/data-quality", label: "Data Quality" },
-  { href: "/imports", label: "Imports" },
+  { href: "/imports", label: "Imports", minRole: "STAFF" },
   { href: "/customers", label: "Customers" },
   { href: "/products", label: "Products" },
   { href: "/suppliers", label: "Suppliers" },
   { href: "/invoices", label: "Invoices" },
   { href: "/inventory", label: "Inventory" },
   { href: "/expenses", label: "Expenses" },
-  { href: "/simulations", label: "Simulations" },
-  { href: "/documents", label: "Documents" },
+  { href: "/simulations", label: "Simulations", minRole: "ANALYST" },
+  { href: "/documents", label: "Documents", minRole: "STAFF" },
   { href: "/market", label: "Market Intel" },
   { href: "/shipping", label: "Shipping" },
-  { href: "/impact", label: "News → Impact" },
-  { href: "/agents", label: "Digital Twin" },
+  { href: "/impact", label: "News → Impact", minRole: "ANALYST" },
+  { href: "/agents", label: "Digital Twin", minRole: "ANALYST" },
   { href: "/assistant", label: "AI Assistant" },
+  { href: "/settings", label: "Settings" },
 ];
 
 // Later phases (rendered disabled). Empty now that all phases are implemented.
@@ -33,6 +37,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
   const [role, setRole] = useState<string | null>(null);
   const [open, setOpen] = useState(true);
+  const [dark, setDark] = useState(false);
 
   useEffect(() => {
     if (!getToken()) {
@@ -40,6 +45,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
       return;
     }
     setRole(getRole());
+    setDark(resolveDark(getStoredTheme()));
     // Restore last menu state; default open on wide screens, closed on narrow.
     let initial = true;
     try {
@@ -64,7 +70,15 @@ export function Shell({ children }: { children: React.ReactNode }) {
     });
   }
 
+  function toggleTheme() {
+    const next = !dark;
+    setDark(next);
+    setTheme(next ? "dark" : "light");
+  }
+
   if (!ready) return <div className="p-8 text-sm text-muted">Loading…</div>;
+
+  const nav = NAV.filter((item) => !item.minRole || roleAtLeast(role, item.minRole));
 
   return (
     <div className="min-h-screen bg-wash">
@@ -80,8 +94,16 @@ export function Shell({ children }: { children: React.ReactNode }) {
         </button>
         <div className="text-sm font-semibold">DigitalTwin</div>
         <div className="hidden text-[11px] text-muted sm:block">Business Decision Support</div>
-        <div className="ml-auto text-[11px] text-muted">
-          <span className="font-mono text-ink">{role}</span>
+        <div className="ml-auto flex items-center gap-3">
+          <button
+            onClick={toggleTheme}
+            aria-label="Toggle dark mode"
+            title={dark ? "Switch to light" : "Switch to dark"}
+            className="flex h-8 w-8 items-center justify-center rounded border border-line hover:bg-wash"
+          >
+            <span className="text-sm leading-none">{dark ? "☀️" : "🌙"}</span>
+          </button>
+          <span className="font-mono text-[11px] text-muted">{role}</span>
         </div>
       </header>
 
@@ -101,7 +123,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
         }`}
       >
         <nav className="flex-1 overflow-y-auto p-2">
-          {NAV.map((item) => {
+          {nav.map((item) => {
             const active = pathname === item.href;
             return (
               <Link

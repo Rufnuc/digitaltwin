@@ -1,17 +1,18 @@
 import type { Config } from "tailwindcss";
 
-// Deliberately monochrome — a plain black & white business UI. Colour is used
-// only sparingly for provenance/status semantics.
+// Monochrome palette driven by CSS variables so light/dark themes swap cleanly.
+// Accent colours (green/red/yellow/blue) are used sparingly for status semantics.
 const config: Config = {
+  darkMode: "class",
   content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}"],
   theme: {
     extend: {
       colors: {
-        ink: "#0a0a0a",
-        paper: "#ffffff",
-        muted: "#6b7280",
-        line: "#e5e7eb",
-        wash: "#f7f7f8",
+        ink: "var(--ink)",
+        paper: "var(--paper)",
+        muted: "var(--muted)",
+        line: "var(--line)",
+        wash: "var(--wash)",
       },
       fontFamily: {
         sans: ["ui-sans-serif", "system-ui", "-apple-system", "Segoe UI", "Roboto", "sans-serif"],

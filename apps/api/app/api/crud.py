@@ -69,11 +69,17 @@ def build_crud_router(
             if key in _RESERVED or key not in columns or value == "":
                 continue
             col = getattr(model, key)
-            # String columns filter case-insensitively; others match exactly.
-            if col.type.python_type is str:
+            pytype = col.type.python_type
+            if pytype is str:
+                # String columns filter case-insensitively.
                 stmt = stmt.where(func.lower(col) == value.lower())
+            elif pytype is bool:
+                stmt = stmt.where(col == (value.lower() in ("true", "1", "yes")))
             else:
-                stmt = stmt.where(col == value)
+                try:
+                    stmt = stmt.where(col == pytype(value))
+                except (TypeError, ValueError):
+                    continue  # ignore un-coercible filter value
             applied_filters[key] = value
 
         total = db.scalar(select(func.count()).select_from(stmt.subquery()))

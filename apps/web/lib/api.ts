@@ -157,6 +157,15 @@ export const api = {
   agentCompare: (body: unknown) =>
     request<AgentCompareResult>("/agents/compare", { method: "POST", body: JSON.stringify(body) }),
 
+  // ---- Users & data management (admin) ----
+  listUsers: () => request<UserRow[]>("/auth/users"),
+  createUser: (body: unknown) =>
+    request<UserRow>("/auth/users", { method: "POST", body: JSON.stringify(body) }),
+  updateUser: (id: number, body: unknown) =>
+    request<UserRow>(`/auth/users/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  dataStats: () => request<DataStats>("/admin/data-stats"),
+  purgeDemo: () => request<PurgeResult>("/admin/purge-demo", { method: "POST" }),
+
   // ---- Shipping monitor (aisstream) ----
   shippingStatus: () => request<ShippingStatus>("/shipping/status"),
   shippingVessels: (params = "") => request<{ items: Vessel[]; note: string }>(`/shipping/vessels${params}`),
@@ -316,6 +325,25 @@ export interface ImpactScanResult {
   alerts_created: number;
   has_market_data: boolean;
   note: string;
+}
+
+// ---- Users & admin types ----
+export interface UserRow {
+  id: number;
+  email: string;
+  full_name: string;
+  role: string;
+  is_active: boolean;
+}
+export interface DataStats {
+  tables: { table: string; total: number; demo: number; real: number }[];
+  total_demo_rows: number;
+  users: number;
+}
+export interface PurgeResult {
+  deleted: Record<string, number>;
+  total_deleted: number;
+  message: string;
 }
 
 // ---- Shipping types ----

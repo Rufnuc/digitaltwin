@@ -2,16 +2,32 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Light theme (default) */
 :root {
+  --paper: #ffffff; /* surfaces / cards */
+  --wash: #f7f7f8; /* page background */
+  --ink: #0a0a0a; /* primary text / dark controls */
+  --muted: #6b7280;
+  --line: #e5e7eb;
   color-scheme: light;
+}
+
+/* Dark theme (toggled via a `dark` class on <html>) */
+.dark {
+  --paper: #171717; /* surfaces / cards */
+  --wash: #0b0b0b; /* page background */
+  --ink: #f4f4f5; /* primary text / light controls */
+  --muted: #9ca3af;
+  --line: #2a2a2a;
+  color-scheme: dark;
 }
 
 html,
 body {
   padding: 0;
   margin: 0;
-  background: #ffffff;
-  color: #0a0a0a;
+  background: var(--wash);
+  color: var(--ink);
 }
 
 * {

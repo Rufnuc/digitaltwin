@@ -8,24 +8,36 @@ export interface Column<T> {
   header: string;
   render?: (row: T) => React.ReactNode;
   className?: string;
+  sortable?: boolean; // clickable header → server-side sort by `key`
 }
 
-// Generic paginated resource table. Fetches `/resource?limit&offset&q`.
+export interface FilterSpec {
+  key: string;
+  label: string;
+  options: { value: string; label: string }[];
+}
+
+// Generic paginated resource table with search, sortable headers and filters.
 export function ResourceTable<T extends Record<string, unknown>>({
   resource,
   columns,
   searchable = true,
   showProvenance = true,
+  filters = [],
 }: {
   resource: string;
   columns: Column<T>[];
   searchable?: boolean;
   showProvenance?: boolean;
+  filters?: FilterSpec[];
 }) {
   const [items, setItems] = useState<T[]>([]);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
   const [q, setQ] = useState("");
+  const [sort, setSort] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  const [filterValues, setFilterValues] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const limit = 25;
@@ -33,9 +45,12 @@ export function ResourceTable<T extends Record<string, unknown>>({
   useEffect(() => {
     let active = true;
     setLoading(true);
-    const params = `?limit=${limit}&offset=${offset}${q ? `&q=${encodeURIComponent(q)}` : ""}`;
+    const parts = [`limit=${limit}`, `offset=${offset}`];
+    if (q) parts.push(`q=${encodeURIComponent(q)}`);
+    if (sort) parts.push(`sort=${sort}`, `sort_dir=${sortDir}`);
+    for (const [k, v] of Object.entries(filterValues)) if (v) parts.push(`${k}=${encodeURIComponent(v)}`);
     api
-      .list<T>(resource, params)
+      .list<T>(resource, `?${parts.join("&")}`)
       .then((res) => {
         if (!active) return;
         setItems(res.items);
@@ -47,21 +62,65 @@ export function ResourceTable<T extends Record<string, unknown>>({
     return () => {
       active = false;
     };
-  }, [resource, offset, q]);
+  }, [resource, offset, q, sort, sortDir, filterValues]);
+
+  function toggleSort(key: string) {
+    setOffset(0);
+    if (sort === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSort(key);
+      setSortDir("asc");
+    }
+  }
 
   return (
     <div>
-      {searchable && (
-        <input
-          value={q}
-          onChange={(e) => {
-            setOffset(0);
-            setQ(e.target.value);
-          }}
-          placeholder="Search…"
-          className="mb-3 w-64 rounded border border-line px-3 py-1.5 text-sm outline-none focus:border-ink"
-        />
-      )}
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        {searchable && (
+          <input
+            value={q}
+            onChange={(e) => {
+              setOffset(0);
+              setQ(e.target.value);
+            }}
+            placeholder="Search…"
+            className="w-56 rounded border border-line bg-paper px-3 py-1.5 text-sm outline-none focus:border-ink"
+          />
+        )}
+        {filters.map((f) => (
+          <select
+            key={f.key}
+            value={filterValues[f.key] ?? ""}
+            onChange={(e) => {
+              setOffset(0);
+              setFilterValues((prev) => ({ ...prev, [f.key]: e.target.value }));
+            }}
+            className="rounded border border-line bg-paper px-2 py-1.5 text-sm"
+          >
+            <option value="">{f.label}: all</option>
+            {f.options.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        ))}
+        {(sort || Object.values(filterValues).some(Boolean) || q) && (
+          <button
+            onClick={() => {
+              setSort(null);
+              setFilterValues({});
+              setQ("");
+              setOffset(0);
+            }}
+            className="text-xs text-muted underline decoration-dotted"
+          >
+            Clear
+          </button>
+        )}
+      </div>
+
       {error && <div className="mb-2 text-sm text-red-700">Error: {error}</div>}
       <div className="overflow-x-auto rounded-lg border border-line">
         <table className="min-w-full text-sm">
@@ -69,7 +128,19 @@ export function ResourceTable<T extends Record<string, unknown>>({
             <tr>
               {columns.map((c) => (
                 <th key={c.key} className={`px-3 py-2 font-medium ${c.className ?? ""}`}>
-                  {c.header}
+                  {c.sortable ? (
+                    <button
+                      onClick={() => toggleSort(c.key)}
+                      className="inline-flex items-center gap-1 hover:text-ink"
+                    >
+                      {c.header}
+                      <span className="text-[9px]">
+                        {sort === c.key ? (sortDir === "asc" ? "▲" : "▼") : "↕"}
+                      </span>
+                    </button>
+                  ) : (
+                    c.header
+                  )}
                 </th>
               ))}
               {showProvenance && <th className="px-3 py-2 font-medium">Origin</th>}
