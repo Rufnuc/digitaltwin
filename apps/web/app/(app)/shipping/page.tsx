@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { api, type ShippingStatus, type Vessel } from "@/lib/api";
 import { PageHeader } from "@/components/Shell";
 import { Card, Kpi, ProvenanceBadge } from "@/components/ui";
@@ -87,7 +87,60 @@ export default function ShippingPage() {
               <span className="text-sm font-medium">{vessels.length} vessels</span>
               <ProvenanceBadge origin="REAL" />
             </div>
-            <div className="overflow-x-auto">
+            {/* Phones: one card per vessel so every field stays visible. */}
+            <div className="space-y-2 p-3 sm:hidden">
+              {vessels.length === 0 ? (
+                <div className="px-1 py-4 text-sm text-muted">
+                  No vessels in view yet — data accumulates as ships report.
+                </div>
+              ) : (
+                vessels.map((v) => (
+                  <div
+                    key={v.mmsi}
+                    className={`rounded-lg border border-line p-3 ${
+                      v.bound_for_nigeria ? "bg-green-500/15" : "bg-paper"
+                    }`}
+                  >
+                    <div className="mb-1 flex items-center gap-2 text-sm font-medium">
+                      {v.name}
+                      {v.bound_for_nigeria && (
+                        <span className="rounded bg-green-600 px-1 py-0.5 text-[9px] text-white">
+                          → NIGERIA
+                        </span>
+                      )}
+                    </div>
+                    <VRow label="MMSI" value={<span className="text-muted">{v.mmsi}</span>} />
+                    <VRow
+                      label="Position"
+                      value={
+                        v.lat != null && v.lon != null ? (
+                          <a
+                            href={`https://www.google.com/maps?q=${v.lat},${v.lon}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="underline decoration-dotted"
+                          >
+                            {v.lat.toFixed(2)}, {v.lon.toFixed(2)}
+                          </a>
+                        ) : (
+                          "—"
+                        )
+                      }
+                    />
+                    <VRow label="Speed" value={v.sog != null ? `${v.sog} kn` : "—"} />
+                    <VRow label="Region" value={v.region} />
+                    <VRow label="Destination" value={v.destination ?? "—"} />
+                    <VRow
+                      label="Seen"
+                      value={v.last_seen ? new Date(v.last_seen).toLocaleTimeString() : "—"}
+                    />
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Tablet and up: the full vessel table. */}
+            <div className="hidden overflow-x-auto sm:block">
               <table className="min-w-full text-sm">
                 <thead className="bg-wash text-left text-xs uppercase tracking-wide text-muted">
                   <tr>
@@ -153,6 +206,15 @@ export default function ShippingPage() {
           </Card>
         </>
       )}
+    </div>
+  );
+}
+
+function VRow({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="flex items-start justify-between gap-3 py-0.5 text-sm">
+      <span className="shrink-0 text-xs uppercase tracking-wide text-muted">{label}</span>
+      <span className="min-w-0 break-words text-right tabular-nums">{value}</span>
     </div>
   );
 }

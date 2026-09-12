@@ -122,7 +122,40 @@ export function ResourceTable<T extends Record<string, unknown>>({
       </div>
 
       {error && <div className="mb-2 text-sm text-red-700">Error: {error}</div>}
-      <div className="overflow-x-auto rounded-lg border border-line">
+
+      {/* Mobile: each record as a stacked card so no field is hidden off-screen. */}
+      <div className="space-y-2 sm:hidden">
+        {loading ? (
+          <div className="rounded-lg border border-line px-3 py-6 text-sm text-muted">Loading…</div>
+        ) : items.length === 0 ? (
+          <div className="rounded-lg border border-line px-3 py-6 text-sm text-muted">
+            No records.
+          </div>
+        ) : (
+          items.map((row, i) => (
+            <div key={i} className="rounded-lg border border-line bg-paper p-3">
+              {columns.map((c) => (
+                <div key={c.key} className="flex items-start justify-between gap-3 py-0.5 text-sm">
+                  <span className="shrink-0 text-xs uppercase tracking-wide text-muted">
+                    {c.header}
+                  </span>
+                  <span className="min-w-0 break-words text-right tabular-nums">
+                    {c.render ? c.render(row) : String(row[c.key] ?? "—")}
+                  </span>
+                </div>
+              ))}
+              {showProvenance && (
+                <div className="mt-1 flex justify-end border-t border-line pt-1.5">
+                  <ProvenanceBadge origin={String(row["data_origin"] ?? "REAL")} />
+                </div>
+              )}
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Tablet and up: the full table (scrolls horizontally only if truly wide). */}
+      <div className="hidden overflow-x-auto rounded-lg border border-line sm:block">
         <table className="min-w-full text-sm">
           <thead className="bg-wash text-left text-xs uppercase tracking-wide text-muted">
             <tr>

@@ -8,7 +8,7 @@ import {
   type ImportResult,
 } from "@/lib/api";
 import { PageHeader } from "@/components/Shell";
-import { Card } from "@/components/ui";
+import { Card, ResponsiveTable } from "@/components/ui";
 
 export default function ImportsPage() {
   const [entities, setEntities] = useState<Record<string, ImportField[]>>({});
@@ -195,37 +195,18 @@ export default function ImportsPage() {
 
       <Card className="mt-4 p-4">
         <div className="mb-2 text-sm font-medium">Import history</div>
-        {batches.length === 0 ? (
-          <div className="text-sm text-muted">No imports yet.</div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead className="text-left text-xs uppercase tracking-wide text-muted">
-                <tr>
-                  {["#", "File", "Status", "Imported", "Failed", "When"].map((h) => (
-                    <th key={h} className="px-2 py-1.5 font-medium">
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {batches.map((b) => (
-                  <tr key={b.id} className="border-t border-line">
-                    <td className="px-2 py-1.5">{b.id}</td>
-                    <td className="px-2 py-1.5">{b.filename ?? "—"}</td>
-                    <td className="px-2 py-1.5 font-mono text-xs">{b.status}</td>
-                    <td className="px-2 py-1.5">{b.rows_imported ?? "—"}</td>
-                    <td className="px-2 py-1.5">{b.rows_failed ?? "—"}</td>
-                    <td className="px-2 py-1.5 text-xs text-muted">
-                      {new Date(b.created_at).toLocaleString()}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+        <ResponsiveTable
+          headers={["#", "File", "Status", "Imported", "Failed", "When"]}
+          empty="No imports yet."
+          rows={batches.map((b) => [
+            b.id,
+            b.filename ?? "—",
+            <span className="font-mono text-xs">{b.status}</span>,
+            b.rows_imported ?? "—",
+            b.rows_failed ?? "—",
+            <span className="text-xs text-muted">{new Date(b.created_at).toLocaleString()}</span>,
+          ])}
+        />
       </Card>
     </div>
   );

@@ -29,6 +29,78 @@ export function Card({ children, className = "" }: { children: React.ReactNode; 
   return <div className={`rounded-lg border border-line bg-paper ${className}`}>{children}</div>;
 }
 
+// A table that adapts to screen width: on tablet+ it renders a normal table; on
+// phones each row becomes a stacked card (header → value pairs) so no column is
+// pushed off-screen and hidden behind a horizontal scroll. Pass cells as
+// ReactNodes so callers keep their own formatting/colours.
+export function ResponsiveTable({
+  headers,
+  rows,
+  empty = "No records.",
+}: {
+  headers: React.ReactNode[];
+  rows: React.ReactNode[][];
+  empty?: string;
+}) {
+  return (
+    <>
+      {/* Phones: one card per row. */}
+      <div className="space-y-2 sm:hidden">
+        {rows.length === 0 ? (
+          <div className="rounded-lg border border-line px-3 py-6 text-sm text-muted">{empty}</div>
+        ) : (
+          rows.map((cells, i) => (
+            <div key={i} className="rounded-lg border border-line bg-paper p-3">
+              {cells.map((cell, j) => (
+                <div key={j} className="flex items-start justify-between gap-3 py-0.5 text-sm">
+                  <span className="shrink-0 text-xs uppercase tracking-wide text-muted">
+                    {headers[j]}
+                  </span>
+                  <span className="min-w-0 break-words text-right tabular-nums">{cell}</span>
+                </div>
+              ))}
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Tablet and up: the full table (scrolls only if genuinely wide). */}
+      <div className="hidden overflow-x-auto rounded-lg border border-line sm:block">
+        <table className="min-w-full text-sm">
+          <thead className="bg-wash text-left text-xs uppercase tracking-wide text-muted">
+            <tr>
+              {headers.map((h, j) => (
+                <th key={j} className="px-3 py-2 font-medium">
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 ? (
+              <tr>
+                <td className="px-3 py-6 text-muted" colSpan={headers.length}>
+                  {empty}
+                </td>
+              </tr>
+            ) : (
+              rows.map((cells, i) => (
+                <tr key={i} className="border-t border-line tabular-nums">
+                  {cells.map((cell, j) => (
+                    <td key={j} className="px-3 py-1.5">
+                      {cell}
+                    </td>
+                  ))}
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
 export function Kpi({
   label,
   value,

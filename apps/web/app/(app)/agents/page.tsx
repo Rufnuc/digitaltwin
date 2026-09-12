@@ -7,7 +7,7 @@ import {
   type AgentSimResult,
 } from "@/lib/api";
 import { PageHeader } from "@/components/Shell";
-import { Card, LineChart, ProvenanceBadge } from "@/components/ui";
+import { Card, LineChart, ProvenanceBadge, ResponsiveTable } from "@/components/ui";
 import { money, num, pct } from "@/lib/format";
 
 export default function AgentsPage() {
@@ -157,36 +157,23 @@ export default function AgentsPage() {
             Best expected strategy:{" "}
             <span className="font-medium">{compare.best_by_expected_profit}</span>
           </div>
-          <div className="overflow-x-auto rounded border border-line">
-            <table className="min-w-full text-sm">
-              <thead className="bg-wash text-left text-xs uppercase tracking-wide text-muted">
-                <tr>
-                  {["Strategy", "Expected cum. net", "P5", "P95", "P(loss)", "Cust. end"].map((h) => (
-                    <th key={h} className="px-3 py-2">
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {compare.strategies.map((s) => (
-                  <tr
-                    key={s.name}
-                    className={`border-t border-line tabular-nums ${
-                      s.name === compare.best_by_expected_profit ? "bg-green-500/15" : ""
-                    }`}
-                  >
-                    <td className="px-3 py-2 font-medium">{s.name}</td>
-                    <td className="px-3 py-2">{money(s.expected_cumulative_net_profit)}</td>
-                    <td className="px-3 py-2">{money(s.p5)}</td>
-                    <td className="px-3 py-2">{money(s.p95)}</td>
-                    <td className="px-3 py-2">{pct(s.probability_of_loss)}</td>
-                    <td className="px-3 py-2">{num(s.expected_active_customers_end)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <ResponsiveTable
+            headers={["Strategy", "Expected cum. net", "P5", "P95", "P(loss)", "Cust. end"]}
+            rows={compare.strategies.map((s) => {
+              const best = s.name === compare.best_by_expected_profit;
+              return [
+                <span className={`font-medium ${best ? "text-green-700 dark:text-green-300" : ""}`}>
+                  {s.name}
+                  {best ? " ★" : ""}
+                </span>,
+                money(s.expected_cumulative_net_profit),
+                money(s.p5),
+                money(s.p95),
+                pct(s.probability_of_loss),
+                num(s.expected_active_customers_end),
+              ];
+            })}
+          />
         </Card>
       )}
     </div>

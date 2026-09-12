@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { api, type Comparison, type Simulation, type Tornado } from "@/lib/api";
 import { PageHeader } from "@/components/Shell";
-import { Card, ProvenanceBadge } from "@/components/ui";
+import { Card, ProvenanceBadge, ResponsiveTable } from "@/components/ui";
 import { money, pct } from "@/lib/format";
 
 type Tab = "scenario" | "montecarlo" | "sensitivity" | "compare";
@@ -164,35 +164,17 @@ function ScenarioTab() {
 
 function ResultsTable({ results }: { results: Simulation["results"] }) {
   return (
-    <div className="overflow-x-auto rounded border border-line">
-      <table className="min-w-full text-sm">
-        <thead className="bg-wash text-left text-xs uppercase tracking-wide text-muted">
-          <tr>
-            {["Metric", "Baseline", "Scenario", "Change"].map((h) => (
-              <th key={h} className="px-3 py-2">
-                {h}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {results.map((r) => (
-            <tr key={r.metric} className="border-t border-line">
-              <td className="px-3 py-2 font-medium">{r.metric}</td>
-              <td className="px-3 py-2 tabular-nums">{fmt(r.metric, r.baseline?.value)}</td>
-              <td className="px-3 py-2 tabular-nums">{fmt(r.metric, r.scenario?.value)}</td>
-              <td
-                className={`px-3 py-2 tabular-nums ${
-                  (r.delta?.percent ?? 0) >= 0 ? "text-green-700" : "text-red-700"
-                }`}
-              >
-                {r.delta ? `${r.delta.percent > 0 ? "+" : ""}${r.delta.percent}%` : "—"}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <ResponsiveTable
+      headers={["Metric", "Baseline", "Scenario", "Change"]}
+      rows={results.map((r) => [
+        <span className="font-medium">{r.metric}</span>,
+        fmt(r.metric, r.baseline?.value),
+        fmt(r.metric, r.scenario?.value),
+        <span className={(r.delta?.percent ?? 0) >= 0 ? "text-green-700" : "text-red-700"}>
+          {r.delta ? `${r.delta.percent > 0 ? "+" : ""}${r.delta.percent}%` : "—"}
+        </span>,
+      ])}
+    />
   );
 }
 
@@ -278,35 +260,21 @@ function MonteCarloTab() {
               <Stat label="P(loss)" value={pct(mc.probability_of_loss)} danger={mc.probability_of_loss > 0.1} />
               <Stat label="P(net ≥ 0)" value={mc.probability_of_target == null ? "—" : pct(mc.probability_of_target)} />
             </div>
-            <div className="overflow-x-auto rounded border border-line">
-              <table className="min-w-full text-sm">
-                <thead className="bg-wash text-left text-xs uppercase tracking-wide text-muted">
-                  <tr>
-                    {["Metric", "P5", "P25", "Median", "P75", "P95", "Mean"].map((h) => (
-                      <th key={h} className="px-2 py-2">
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {result.results.map((r) => {
-                    const s = r.scenario as Record<string, number>;
-                    return (
-                      <tr key={r.metric} className="border-t border-line tabular-nums">
-                        <td className="px-2 py-1.5 font-medium">{r.metric}</td>
-                        <td className="px-2 py-1.5">{fmt(r.metric, s.p5)}</td>
-                        <td className="px-2 py-1.5">{fmt(r.metric, s.p25)}</td>
-                        <td className="px-2 py-1.5">{fmt(r.metric, s.p50)}</td>
-                        <td className="px-2 py-1.5">{fmt(r.metric, s.p75)}</td>
-                        <td className="px-2 py-1.5">{fmt(r.metric, s.p95)}</td>
-                        <td className="px-2 py-1.5">{fmt(r.metric, s.mean)}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+            <ResponsiveTable
+              headers={["Metric", "P5", "P25", "Median", "P75", "P95", "Mean"]}
+              rows={result.results.map((r) => {
+                const s = r.scenario as Record<string, number>;
+                return [
+                  <span className="font-medium">{r.metric}</span>,
+                  fmt(r.metric, s.p5),
+                  fmt(r.metric, s.p25),
+                  fmt(r.metric, s.p50),
+                  fmt(r.metric, s.p75),
+                  fmt(r.metric, s.p95),
+                  fmt(r.metric, s.mean),
+                ];
+              })}
+            />
             <div className="mt-4">
               <div className="mb-2 text-xs font-medium text-muted">
                 Sensitivity — correlation of each input with net profit

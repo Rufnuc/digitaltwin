@@ -27,12 +27,12 @@ export default function AnalyticsPage() {
         title="Analytics"
         subtitle="Customer, product, supplier and financial intelligence — all computed from stored records."
       />
-      <div className="mb-4 flex gap-1 border-b border-line">
+      <div className="mb-4 flex gap-1 overflow-x-auto border-b border-line">
         {TABS.map((t) => (
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
-            className={`-mb-px border-b-2 px-3 py-2 text-sm ${
+            className={`-mb-px shrink-0 whitespace-nowrap border-b-2 px-3 py-2 text-sm ${
               tab === t.id ? "border-ink font-medium" : "border-transparent text-muted"
             }`}
           >
@@ -79,7 +79,27 @@ function Financials() {
         </div>
         <LineChart data={s.map((r) => ({ period: r.period, revenue: r.net_profit }))} />
       </Card>
-      <div className="overflow-x-auto rounded-lg border border-line">
+      {/* Mobile: one card per month so every figure stays on screen. */}
+      <div className="space-y-2 sm:hidden">
+        {s.map((r) => (
+          <div key={r.period} className="rounded-lg border border-line bg-paper p-3 tabular-nums">
+            <div className="mb-1 text-sm font-medium">{r.period}</div>
+            <PnlRow label="Revenue" value={money(r.revenue)} />
+            <PnlRow label="COGS" value={money(r.cogs)} />
+            <PnlRow label="Gross" value={money(r.gross_profit)} />
+            <PnlRow label="Opex" value={money(r.operating_expenses)} />
+            <PnlRow
+              label="Net"
+              value={money(r.net_profit)}
+              className={r.net_profit < 0 ? "text-red-700" : ""}
+            />
+            <PnlRow label="Net %" value={pct(r.net_margin)} />
+          </div>
+        ))}
+      </div>
+
+      {/* Tablet and up: the full P&L table. */}
+      <div className="hidden overflow-x-auto rounded-lg border border-line sm:block">
         <table className="min-w-full text-sm">
           <thead className="bg-wash text-left text-xs uppercase tracking-wide text-muted">
             <tr>
@@ -237,6 +257,15 @@ function MiniTable({ head, rows }: { head: string[]; rows: string[][] }) {
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+function PnlRow({ label, value, className }: { label: string; value: string; className?: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3 py-0.5 text-sm">
+      <span className="text-xs uppercase tracking-wide text-muted">{label}</span>
+      <span className={`break-words text-right ${className ?? ""}`}>{value}</span>
     </div>
   );
 }

@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { api, getRole, type DataStats, type UserRow } from "@/lib/api";
 import { PageHeader } from "@/components/Shell";
-import { Card } from "@/components/ui";
+import { Card, ResponsiveTable } from "@/components/ui";
 import { num } from "@/lib/format";
 import { roleAtLeast } from "@/lib/roles";
 import { getStoredTheme, setTheme, type Theme } from "@/lib/theme";
@@ -114,52 +114,35 @@ function UsersPanel() {
     <Card className="mt-4 p-4">
       <div className="mb-3 text-sm font-medium">User management</div>
       {error && <div className="mb-2 text-sm text-red-700">{error}</div>}
-      <div className="overflow-x-auto rounded border border-line">
-        <table className="min-w-full text-sm">
-          <thead className="bg-wash text-left text-xs uppercase tracking-wide text-muted">
-            <tr>
-              {["Name", "Email", "Role", "Active"].map((h) => (
-                <th key={h} className="px-3 py-2 font-medium">
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {users.map((u) => (
-              <tr key={u.id} className="border-t border-line">
-                <td className="px-3 py-2">{u.full_name}</td>
-                <td className="px-3 py-2 text-muted">{u.email}</td>
-                <td className="px-3 py-2">
-                  <select
-                    value={u.role}
-                    onChange={(e) => change(u.id, { role: e.target.value })}
-                    className="rounded border border-line bg-paper px-2 py-1 text-xs"
-                  >
-                    {ROLES.map((r) => (
-                      <option key={r} value={r}>
-                        {r}
-                      </option>
-                    ))}
-                  </select>
-                </td>
-                <td className="px-3 py-2">
-                  <button
-                    onClick={() => change(u.id, { is_active: !u.is_active })}
-                    className={`rounded border px-2 py-1 text-xs ${
-                      u.is_active
-                        ? "border-green-500/40 bg-green-500/15 text-green-700 dark:text-green-300"
-                        : "border-line text-muted"
-                    }`}
-                  >
-                    {u.is_active ? "Active" : "Inactive"}
-                  </button>
-                </td>
-              </tr>
+      <ResponsiveTable
+        headers={["Name", "Email", "Role", "Active"]}
+        empty="No users."
+        rows={users.map((u) => [
+          u.full_name,
+          <span className="text-muted">{u.email}</span>,
+          <select
+            value={u.role}
+            onChange={(e) => change(u.id, { role: e.target.value })}
+            className="rounded border border-line bg-paper px-2 py-1 text-xs"
+          >
+            {ROLES.map((r) => (
+              <option key={r} value={r}>
+                {r}
+              </option>
             ))}
-          </tbody>
-        </table>
-      </div>
+          </select>,
+          <button
+            onClick={() => change(u.id, { is_active: !u.is_active })}
+            className={`rounded border px-2 py-1 text-xs ${
+              u.is_active
+                ? "border-green-500/40 bg-green-500/15 text-green-700 dark:text-green-300"
+                : "border-line text-muted"
+            }`}
+          >
+            {u.is_active ? "Active" : "Inactive"}
+          </button>,
+        ])}
+      />
 
       <div className="mt-3 flex flex-wrap items-end gap-2">
         <Inp label="Full name" v={form.full_name} on={(v) => setForm({ ...form, full_name: v })} />

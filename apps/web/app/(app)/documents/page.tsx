@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, getRole, type Extraction } from "@/lib/api";
 import { PageHeader } from "@/components/Shell";
-import { Card } from "@/components/ui";
+import { Card, ResponsiveTable } from "@/components/ui";
 import { money, pct } from "@/lib/format";
 
 const REVIEW_ROLES = ["ADMIN", "OWNER", "MANAGER"];
@@ -160,38 +160,22 @@ function ExtractionCard({
         )}
       </div>
 
-      <div className="overflow-x-auto rounded border border-line">
-        <table className="min-w-full text-xs">
-          <thead className="bg-wash text-left uppercase tracking-wide text-muted">
-            <tr>
-              {["Description", "Qty", "Unit", "Total", "Product match"].map((h) => (
-                <th key={h} className="px-2 py-1.5 font-medium">
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {lines.map((ln, i) => (
-              <tr key={i} className="border-t border-line tabular-nums">
-                <td className="px-2 py-1.5">{ln.description}</td>
-                <td className="px-2 py-1.5">{ln.quantity}</td>
-                <td className="px-2 py-1.5">{money(ln.unit_price)}</td>
-                <td className="px-2 py-1.5">{money(ln.line_total)}</td>
-                <td className="px-2 py-1.5">
-                  {lineMatches[i]?.product_id != null ? (
-                    <span className="text-green-700">
-                      #{lineMatches[i].product_id} ({pct(lineMatches[i].confidence)})
-                    </span>
-                  ) : (
-                    <span className="text-yellow-700">unmatched</span>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <ResponsiveTable
+        headers={["Description", "Qty", "Unit", "Total", "Product match"]}
+        rows={lines.map((ln, i) => [
+          ln.description,
+          ln.quantity,
+          money(ln.unit_price),
+          money(ln.line_total),
+          lineMatches[i]?.product_id != null ? (
+            <span className="text-green-700">
+              #{lineMatches[i].product_id} ({pct(lineMatches[i].confidence)})
+            </span>
+          ) : (
+            <span className="text-yellow-700">unmatched</span>
+          ),
+        ])}
+      />
 
       {!e.validation.arithmetic_ok && (
         <div className="mt-2 rounded border border-yellow-500/50 bg-yellow-500/15 p-2 text-xs">
