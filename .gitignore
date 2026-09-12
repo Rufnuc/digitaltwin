@@ -30,3 +30,6 @@ dist/
 # Object storage / uploads (local dev)
 storage/
 uploads/
+
+# TS incremental build cache
+*.tsbuildinfo

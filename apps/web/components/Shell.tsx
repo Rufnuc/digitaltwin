@@ -25,7 +25,7 @@ const NAV: { href: string; label: string; minRole?: Role }[] = [
   { href: "/shipping", label: "Shipping" },
   { href: "/impact", label: "News → Impact", minRole: "ANALYST" },
   { href: "/agents", label: "Digital Twin", minRole: "ANALYST" },
-  { href: "/assistant", label: "AI Assistant" },
+  { href: "/assistant", label: "Benfieg (AI)" },
   { href: "/settings", label: "Settings" },
 ];
 

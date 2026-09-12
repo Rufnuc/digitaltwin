@@ -55,8 +55,8 @@ export default function AssistantPage() {
   return (
     <div>
       <PageHeader
-        title="AI Assistant"
-        subtitle="Ask in plain language — or tell it to make changes. It calls the business-data and simulation tools for every number (never invents figures) and can create/update records, refresh data, and run simulations, within your permissions."
+        title="Benfieg"
+        subtitle="Your AI business analyst. Ask in plain language — or tell it to make changes. It calls the business-data and simulation tools for every number (never invents figures) and can create/update records, refresh data, and run simulations, within your permissions."
       />
 
       {turns.length === 0 && (
