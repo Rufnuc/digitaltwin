@@ -17,6 +17,7 @@ from app.api.v1.endpoints import (
     invoices,
     market,
     meta,
+    notifications,
     shipping,
     simulations,
 )
@@ -45,6 +46,7 @@ api_router.include_router(impact.router)
 api_router.include_router(agents.router)
 api_router.include_router(admin.router)
 api_router.include_router(shipping.router)
+api_router.include_router(notifications.router)
 api_router.include_router(meta.router)
 
 # Generic CRUD resources

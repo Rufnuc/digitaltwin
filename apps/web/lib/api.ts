@@ -157,6 +157,21 @@ export const api = {
   agentCompare: (body: unknown) =>
     request<AgentCompareResult>("/agents/compare", { method: "POST", body: JSON.stringify(body) }),
 
+  // ---- Notifications ----
+  notifications: (unreadOnly = false) =>
+    request<{ items: NotificationItem[]; unread_count: number }>(
+      `/notifications?unread_only=${unreadOnly}`,
+    ),
+  unreadCount: () => request<{ unread_count: number }>("/notifications/unread-count"),
+  generateNotifications: () =>
+    request<{ created: number; categories: string[] }>("/notifications/generate", {
+      method: "POST",
+    }),
+  markNotificationRead: (id: number) =>
+    request<{ ok: boolean }>(`/notifications/${id}/read`, { method: "POST" }),
+  markAllNotificationsRead: () =>
+    request<{ marked_read: number }>("/notifications/read-all", { method: "POST" }),
+
   // ---- Users & data management (admin) ----
   listUsers: () => request<UserRow[]>("/auth/users"),
   createUser: (body: unknown) =>
@@ -325,6 +340,18 @@ export interface ImpactScanResult {
   alerts_created: number;
   has_market_data: boolean;
   note: string;
+}
+
+// ---- Notification types ----
+export interface NotificationItem {
+  id: number;
+  title: string;
+  body: string | null;
+  category: string;
+  severity: string;
+  link: string | null;
+  is_read: boolean;
+  created_at: string;
 }
 
 // ---- Users & admin types ----

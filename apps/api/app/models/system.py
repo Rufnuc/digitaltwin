@@ -42,7 +42,11 @@ class Notification(Base, TimestampMixin):
     __tablename__ = "notifications"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # user_id NULL = broadcast (visible to everyone in this single-business app).
     user_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     body: Mapped[str | None] = mapped_column(Text, nullable=True)
+    category: Mapped[str] = mapped_column(String(64), default="general", index=True)
+    severity: Mapped[str] = mapped_column(String(16), default="info")
+    link: Mapped[str | None] = mapped_column(String(255), nullable=True)  # in-app path
     is_read: Mapped[bool] = mapped_column(Boolean, default=False, index=True)

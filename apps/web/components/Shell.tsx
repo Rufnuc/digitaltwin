@@ -3,6 +3,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import React, { useEffect, useState } from "react";
 import { clearSession, getRole, getToken } from "@/lib/api";
+import { NotificationBell } from "@/components/NotificationBell";
 import { type Role, roleAtLeast } from "@/lib/roles";
 import { getStoredTheme, resolveDark, setTheme } from "@/lib/theme";
 
@@ -95,6 +96,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
         <div className="text-sm font-semibold">DigitalTwin</div>
         <div className="hidden text-[11px] text-muted sm:block">Business Decision Support</div>
         <div className="ml-auto flex items-center gap-3">
+          <NotificationBell />
           <button
             onClick={toggleTheme}
             aria-label="Toggle dark mode"
