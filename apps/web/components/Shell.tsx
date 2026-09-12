@@ -186,7 +186,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
 
       {/* Content — shifts right when the menu is open on desktop */}
       <main className={`transition-all duration-200 ${open ? "md:ml-60" : "ml-0"}`}>
-        <div className="mx-auto max-w-6xl p-6">{children}</div>
+        <div className="mx-auto max-w-6xl p-4 sm:p-6">{children}</div>
       </main>
     </div>
   );

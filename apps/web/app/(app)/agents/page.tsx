@@ -121,7 +121,7 @@ export default function AgentsPage() {
             <div className="text-sm text-muted">Run a simulation to see the forecast.</div>
           ) : (
             <>
-              <div className="mb-3 grid grid-cols-2 gap-3 md:grid-cols-4">
+              <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4">
                 <Stat label="Median cum. net" value={money(result.cumulative_net_profit.p50)} />
                 <Stat label="P5 … P95" value={`${money(result.cumulative_net_profit.p5)} … ${money(result.cumulative_net_profit.p95)}`} small />
                 <Stat label="P(loss)" value={pct(result.probability_of_cumulative_loss)} danger={result.probability_of_cumulative_loss > 0.4} />

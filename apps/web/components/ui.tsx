@@ -39,9 +39,11 @@ export function Kpi({
   sub?: string;
 }) {
   return (
-    <Card className="p-4">
-      <div className="text-xs uppercase tracking-wide text-muted">{label}</div>
-      <div className="mt-1 text-2xl font-semibold tabular-nums">{value}</div>
+    <Card className="min-w-0 p-4">
+      <div className="truncate text-xs uppercase tracking-wide text-muted">{label}</div>
+      <div className="mt-1 break-words text-xl font-semibold leading-tight tabular-nums sm:text-2xl">
+        {value}
+      </div>
       {sub && <div className="mt-0.5 text-xs text-muted">{sub}</div>}
     </Card>
   );

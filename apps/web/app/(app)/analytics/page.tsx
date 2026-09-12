@@ -66,7 +66,7 @@ function Financials() {
   const last = s[s.length - 1];
   return (
     <div>
-      <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+      <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4">
         <Kpi label="Latest month" value={last?.period ?? "—"} />
         <Kpi label="Revenue (mo)" value={money(last?.revenue)} />
         <Kpi label="Net profit (mo)" value={money(last?.net_profit)} sub={pct(last?.net_margin)} />
@@ -117,7 +117,7 @@ function Customers() {
   if (!data) return <Loading />;
   return (
     <div>
-      <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+      <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4">
         <Kpi label="Customers w/ sales" value={num(data.summary.customers_with_sales)} />
         <Kpi label="At churn risk" value={num(data.summary.at_risk_count)} />
         <Kpi label="Top-1 rev. share" value={pct(data.summary.top1_revenue_share)} />
@@ -162,7 +162,7 @@ function Products() {
   if (!data) return <Loading />;
   return (
     <div>
-      <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+      <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4">
         <Kpi label="Products sold" value={num(data.summary.products_sold)} />
         <Kpi label="Dead stock lines" value={num(data.summary.dead_stock_count)} />
       </div>
@@ -192,7 +192,7 @@ function Suppliers() {
   if (!data) return <Loading />;
   return (
     <div>
-      <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+      <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4">
         <Kpi label="Suppliers" value={num(data.summary.supplier_count)} />
         <Kpi label="Total spend" value={money(data.summary.total_spend)} />
       </div>

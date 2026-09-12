@@ -27,7 +27,7 @@ export default function DataQualityPage() {
         title="Data Quality"
         subtitle="Transparent checks over the dataset — problems are surfaced, never hidden or auto-corrected."
       />
-      <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+      <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4">
         <Kpi label="Quality score" value={`${dq.score}`} sub={`grade ${dq.grade}`} />
         <Kpi label="Invoices" value={num(dq.totals.invoices)} />
         <Kpi label="Invoice lines" value={num(dq.totals.invoice_lines)} />
