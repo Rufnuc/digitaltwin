@@ -138,3 +138,22 @@ def test_assistant_sets_product_price(db):
     assert "set_product_price" in res["actions_taken"]
     p = db.scalar(select(Product).where(Product.name == "Timing belt 209"))
     assert float(p.selling_price) == 250000.0
+
+
+def test_assistant_updates_inventory_and_cost(db):
+    from sqlalchemy import select
+
+    from app.models.inventory import Inventory
+    from app.models.product import Product
+    seed(db)
+    user = _mk_user(db, "STAFF")
+
+    r = ask(db, "set the stock of Timing belt 209 to 500", user=user)
+    assert "set_inventory" in r["actions_taken"]
+    r2 = ask(db, "set the cost of Timing belt 209 to 90000", user=user)
+    assert "set_product_cost" in r2["actions_taken"]
+
+    p = db.scalar(select(Product).where(Product.name == "Timing belt 209"))
+    assert float(p.purchase_cost) == 90000.0
+    inv = db.scalar(select(Inventory).where(Inventory.product_id == p.id))
+    assert inv.quantity_on_hand == 500

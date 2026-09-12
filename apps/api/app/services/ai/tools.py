@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 from app.core.enums import AuditAction, DataOrigin, Role
 from app.core.security import role_at_least
 from app.models.customer import Customer
+from app.models.inventory import Inventory
 from app.models.product import Product, ProductPriceHistory
 from app.models.simulation import SimulationRun
 from app.services import audit
@@ -237,6 +238,44 @@ def _set_product_price(db: Session, product: str, selling_price: float) -> dict:
             "price_from": old, "price_to": selling_price}
 
 
+def _set_product_cost(db: Session, product: str, purchase_cost: float) -> dict:
+    p = _find_product(db, product)
+    if not p:
+        return {"error": f"product '{product}' not found"}
+    old = float(p.purchase_cost) if p.purchase_cost is not None else None
+    p.purchase_cost = purchase_cost
+    db.add(ProductPriceHistory(product_id=p.id, effective_date=date.today(),
+                               purchase_cost=purchase_cost, selling_price=p.selling_price))
+    db.commit()
+    return {"updated": "product_cost", "id": p.id, "name": p.name,
+            "cost_from": old, "cost_to": purchase_cost}
+
+
+def _set_inventory(db: Session, product: str, quantity: float | None = None,
+                   unit_cost: float | None = None, safety_stock: float | None = None) -> dict:
+    p = _find_product(db, product)
+    if not p:
+        return {"error": f"product '{product}' not found"}
+    inv = db.scalar(select(Inventory).where(Inventory.product_id == p.id))
+    if inv is None:
+        inv = Inventory(product_id=p.id, quantity_on_hand=0, data_origin=DataOrigin.REAL.value)
+        db.add(inv)
+    changed: dict = {}
+    if quantity is not None:
+        inv.quantity_on_hand = int(quantity)
+        changed["quantity_on_hand"] = int(quantity)
+    if unit_cost is not None:
+        inv.unit_cost = unit_cost
+        changed["unit_cost"] = unit_cost
+    if safety_stock is not None:
+        inv.safety_stock = int(safety_stock)
+        changed["safety_stock"] = int(safety_stock)
+    if not changed:
+        return {"error": "nothing to update: provide quantity, unit_cost or safety_stock"}
+    db.commit()
+    return {"updated": "inventory", "product": p.name, "product_id": p.id, **changed}
+
+
 def _refresh_market(db: Session) -> dict:
     return market_ingest.refresh_market_data(db)
 
@@ -383,6 +422,22 @@ TOOLS: list[ToolDef] = [
          "properties": {"product": {"type": "string"}, "selling_price": {"type": "number"}},
          "required": ["product", "selling_price"]},
         _set_product_price, provenance="REAL", mutating=True, min_role=Role.STAFF.value,
+    ),
+    ToolDef(
+        "set_product_cost", "Change a product's purchase (unit) cost by name or code.",
+        {"type": "object",
+         "properties": {"product": {"type": "string"}, "purchase_cost": {"type": "number"}},
+         "required": ["product", "purchase_cost"]},
+        _set_product_cost, provenance="REAL", mutating=True, min_role=Role.STAFF.value,
+    ),
+    ToolDef(
+        "set_inventory",
+        "Update a product's inventory — quantity on hand, unit cost, and/or safety stock.",
+        {"type": "object",
+         "properties": {"product": {"type": "string"}, "quantity": {"type": "number"},
+                        "unit_cost": {"type": "number"}, "safety_stock": {"type": "number"}},
+         "required": ["product"]},
+        _set_inventory, provenance="REAL", mutating=True, min_role=Role.STAFF.value,
     ),
     ToolDef(
         "refresh_market_data",

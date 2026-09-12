@@ -157,6 +157,10 @@ export const api = {
   agentCompare: (body: unknown) =>
     request<AgentCompareResult>("/agents/compare", { method: "POST", body: JSON.stringify(body) }),
 
+  // ---- Shipping monitor (aisstream) ----
+  shippingStatus: () => request<ShippingStatus>("/shipping/status"),
+  shippingVessels: (params = "") => request<{ items: Vessel[]; note: string }>(`/shipping/vessels${params}`),
+
   // ---- Phase 2: analytics ----
   analyticsCustomers: () => request<CustomerIntel>("/analytics/customers"),
   analyticsProducts: () => request<ProductIntel>("/analytics/products"),
@@ -312,6 +316,31 @@ export interface ImpactScanResult {
   alerts_created: number;
   has_market_data: boolean;
   note: string;
+}
+
+// ---- Shipping types ----
+export interface ShippingStatus {
+  enabled: boolean;
+  connected: boolean;
+  vessels_tracked: number;
+  messages_received: number;
+  nigeria_bound: number;
+  by_region: Record<string, number>;
+  last_message_at: string | null;
+  error: string | null;
+}
+export interface Vessel {
+  mmsi: number;
+  name: string;
+  lat: number | null;
+  lon: number | null;
+  sog: number | null;
+  cog: number | null;
+  ship_type: number | null;
+  destination: string | null;
+  region: string;
+  bound_for_nigeria: boolean;
+  last_seen: string | null;
 }
 
 // ---- Phase 6 types ----

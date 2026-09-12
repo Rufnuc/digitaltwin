@@ -21,6 +21,9 @@ python-jose[cryptography]==3.3.0
 # Numerics (simulation engine)
 numpy==2.2.1
 
+# Live shipping monitor (aisstream.io AIS WebSocket)
+websockets==16.1.1
+
 # Testing / tooling
 pytest==8.3.4
 httpx==0.28.1

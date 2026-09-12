@@ -41,6 +41,19 @@ def _startup() -> None:
         Base.metadata.create_all(bind=engine)
         logger.info("SQLite detected: ensured tables via create_all (dev mode).")
 
+    # Start the live shipping monitor if an aisstream key is configured.
+    if settings.AISSTREAM_API_KEY:
+        from app.services.shipping import collector
+        collector.start()
+        logger.info("Shipping monitor started (aisstream).")
+
+
+@app.on_event("shutdown")
+async def _shutdown() -> None:
+    if settings.AISSTREAM_API_KEY:
+        from app.services.shipping import collector
+        await collector.stop()
+
 
 @app.get("/health", tags=["meta"])
 def health() -> dict:

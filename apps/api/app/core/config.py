@@ -46,6 +46,11 @@ class Settings(BaseSettings):
     # live FX, Google News) on refresh; reads come from the DB. "none" disables it.
     MARKET_DATA_PROVIDER: str = "live"
 
+    # Shipping monitor (aisstream.io live AIS vessel data). Key from env/.env only,
+    # never committed. When set, a background task streams vessel positions for the
+    # China→Nigeria trade lanes; empty disables the feature.
+    AISSTREAM_API_KEY: str = ""
+
     # CORS
     CORS_ORIGINS: list[str] = Field(
         default_factory=lambda: ["http://localhost:3000", "http://127.0.0.1:3000"]

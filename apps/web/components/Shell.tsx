@@ -18,6 +18,7 @@ const NAV = [
   { href: "/simulations", label: "Simulations" },
   { href: "/documents", label: "Documents" },
   { href: "/market", label: "Market Intel" },
+  { href: "/shipping", label: "Shipping" },
   { href: "/impact", label: "News → Impact" },
   { href: "/agents", label: "Digital Twin" },
   { href: "/assistant", label: "AI Assistant" },

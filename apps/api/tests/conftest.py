@@ -19,6 +19,7 @@ os.environ["AUTH_SECRET"] = "test-secret"
 os.environ["OCR_PROVIDER"] = "structured_json"
 os.environ["AI_PROVIDER"] = "rule_based"
 os.environ["MARKET_DATA_PROVIDER"] = "none"
+os.environ["AISSTREAM_API_KEY"] = ""  # no live shipping socket during tests
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402

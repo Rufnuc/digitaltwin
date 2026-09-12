@@ -110,7 +110,9 @@ def assess_inflation(db: Session, assumptions: dict) -> dict | None:
 
 
 def assess_fx(db: Session, assumptions: dict) -> dict | None:
-    fact = _indicator(db, "fx_usd_ngn") or _indicator(db, "official_fx_usd")
+    # Prefer CNY — most imported parts are sourced from China — then USD.
+    fact = (_indicator(db, "fx_cny_ngn") or _indicator(db, "fx_usd_ngn")
+            or _indicator(db, "official_fx_usd"))
     if not fact:
         return None
     shock = float(assumptions.get("fx_shock_pct", DEFAULT_ASSUMPTIONS["fx_shock_pct"]))

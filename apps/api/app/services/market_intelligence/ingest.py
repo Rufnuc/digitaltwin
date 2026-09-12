@@ -25,6 +25,8 @@ IMPLICATIONS = {
                   "prices — consider hedging or diversifying sourcing.",
     "fx_eur_ngn": "Euro-priced imports get more expensive as the naira weakens.",
     "fx_gbp_ngn": "Sterling-priced imports get more expensive as the naira weakens.",
+    "fx_cny_ngn": "Most parts are imported from China — a weaker naira against the yuan raises "
+                  "landed costs directly.",
     "official_fx_usd": "Official-rate depreciation signals broad import-cost pressure.",
     "lending_rate": "Higher lending rates raise the cost of financing inventory and expansion.",
     "gdp_growth": "Slower growth may soften customer demand.",
@@ -103,6 +105,7 @@ def _label_for(indicator: str) -> str:
         "fx_usd_ngn": "USD → NGN",
         "fx_eur_ngn": "EUR → NGN",
         "fx_gbp_ngn": "GBP → NGN",
+        "fx_cny_ngn": "CNY → NGN (Chinese Yuan)",
     }
     return labels.get(indicator, indicator)
 

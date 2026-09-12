@@ -169,6 +169,30 @@ class RuleBasedProvider:
                         f"to {_money(r['price_to'])}.")
             return f"Set {r['name']} price to {_money(r['price_to'])}."
 
+        # Set product cost
+        mcst = re.search(r"(?:set|change|update)\s+(?:the\s+)?cost\s+of\s+(.+?)\s+to\s+([\d,.]+)",
+                         question, re.I)
+        if mcst:
+            r = call("set_product_cost", {"product": clean(mcst.group(1)),
+                                          "purchase_cost": float(mcst.group(2).replace(",", ""))})
+            if "error" in r:
+                return f"Couldn't set the cost: {r['error']}"
+            if r.get("cost_from") is not None:
+                return (f"Updated {r['name']} cost from {_money(r['cost_from'])} "
+                        f"to {_money(r['cost_to'])}.")
+            return f"Set {r['name']} cost to {_money(r['cost_to'])}."
+
+        # Set inventory / stock quantity
+        minv = re.search(
+            r"(?:set|change|update|restock)\s+(?:the\s+)?(?:stock|inventory|quantity|qty)\s+"
+            r"(?:of\s+|for\s+)?(.+?)\s+to\s+([\d,.]+)", question, re.I)
+        if minv:
+            r = call("set_inventory", {"product": clean(minv.group(1)),
+                                       "quantity": float(minv.group(2).replace(",", ""))})
+            if "error" in r:
+                return f"Couldn't update inventory: {r['error']}"
+            return f"Set {r['product']} stock on hand to {r['quantity_on_hand']:,} units."
+
         # Customer status
         m1 = re.search(r"(?:mark|set)\s+(?:customer\s+)?(.+?)\s+as\s+(active|inactive)",
                        question, re.I)

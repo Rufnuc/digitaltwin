@@ -12,9 +12,9 @@ not a deferred string, to bind it as a request body.
 """
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -22,6 +22,9 @@ from app.api.deps import db_session, get_current_user, require_role
 from app.core.enums import AuditAction, Role
 from app.models.user import User
 from app.services import audit
+
+# Query params handled explicitly by list endpoints (never treated as filters).
+_RESERVED = {"limit", "offset", "q", "sort", "sort_dir"}
 
 
 def build_crud_router(
@@ -38,29 +41,57 @@ def build_crud_router(
 ) -> APIRouter:
     router = APIRouter(tags=tags)
 
+    columns = set(model.__table__.columns.keys())
+
     @router.get("", response_model=dict)
     def list_items(
+        request: Request,
         db: Session = Depends(db_session),
         _: User = Depends(get_current_user),
         limit: int = Query(50, le=200),
         offset: int = Query(0, ge=0),
         q: str | None = None,
+        sort: str | None = Query(None, description="column to sort by (default id)"),
+        sort_dir: str = Query("asc", pattern="^(asc|desc)$"),
     ) -> Any:
         stmt = select(model)
+
+        # Full-text-ish search across the configured search fields.
         if q and search_fields:
             like = f"%{q}%"
             conditions = [getattr(model, f).ilike(like) for f in search_fields if hasattr(model, f)]
             if conditions:
-                from sqlalchemy import or_
-
                 stmt = stmt.where(or_(*conditions))
+
+        # Field filters: any query param matching a model column (?status=ACTIVE).
+        applied_filters: dict[str, str] = {}
+        for key, value in request.query_params.items():
+            if key in _RESERVED or key not in columns or value == "":
+                continue
+            col = getattr(model, key)
+            # String columns filter case-insensitively; others match exactly.
+            if col.type.python_type is str:
+                stmt = stmt.where(func.lower(col) == value.lower())
+            else:
+                stmt = stmt.where(col == value)
+            applied_filters[key] = value
+
         total = db.scalar(select(func.count()).select_from(stmt.subquery()))
-        rows = db.scalars(stmt.order_by(model.id).limit(limit).offset(offset)).all()
+
+        # Sorting: validated column name, else fall back to id.
+        sort_col = getattr(model, sort) if sort in columns else model.id
+        stmt = stmt.order_by(sort_col.desc() if sort_dir == "desc" else sort_col.asc())
+
+        rows = db.scalars(stmt.limit(limit).offset(offset)).all()
         return {
             "items": [out_schema.model_validate(r).model_dump() for r in rows],
             "total": int(total or 0),
             "limit": limit,
             "offset": offset,
+            "sort": sort or "id",
+            "sort_dir": sort_dir,
+            "filters": applied_filters,
+            "sortable_fields": sorted(columns),
         }
 
     @router.get("/{item_id}", response_model=out_schema)

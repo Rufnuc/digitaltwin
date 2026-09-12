@@ -25,6 +25,12 @@ logger = logging.getLogger("digitaltwin.market")
 
 COUNTRY = "NGA"
 _TIMEOUT = 15.0
+_HEADERS = {"User-Agent": "DigitalTwin/1.0"}
+
+
+def _client() -> httpx.Client:
+    # follow_redirects is required — Google News feeds 302 to a canonical URL.
+    return httpx.Client(timeout=_TIMEOUT, follow_redirects=True, headers=_HEADERS)
 
 # World Bank indicator catalogue (key, label, unit, WB series code).
 WB_INDICATORS = [
@@ -35,17 +41,26 @@ WB_INDICATORS = [
 ]
 
 FX_URL = "https://open.er-api.com/v6/latest/USD"
-NEWS_URL = (
-    "https://news.google.com/rss/search"
-    "?q=Nigeria+economy+naira+inflation+fuel+import+business"
-    "&hl=en-NG&gl=NG&ceid=NG:en"
-)
 
-# Terms that make a headline relevant to an auto-parts import/wholesale business.
+# Two real Google-News feeds: local Nigerian business, and China/Asia trade —
+# most imported parts come from China, so Chinese economic news is material.
+NEWS_URLS = [
+    ("https://news.google.com/rss/search"
+     "?q=Nigeria+economy+naira+inflation+fuel+import+business"
+     "&hl=en-NG&gl=NG&ceid=NG:en"),
+    ("https://news.google.com/rss/search"
+     "?q=China+yuan+exports+manufacturing+Nigeria+trade+shipping+tariff"
+     "&hl=en&gl=US&ceid=US:en"),
+]
+
+# Terms that make a headline relevant to an auto-parts import/wholesale business
+# sourcing from China (and the West).
 BUSINESS_KEYWORDS = [
     "naira", "inflation", "fuel", "petrol", "diesel", "import", "customs", "tariff",
     "exchange rate", "forex", "fx", "dollar", "port", "supply", "vehicle", "auto",
     "spare part", "car", "transport", "interest rate", "cbn", "manufacturing", "cost",
+    "china", "chinese", "yuan", "renminbi", "rmb", "export", "shipping", "container",
+    "shenzhen", "guangzhou", "factory", "supply chain",
 ]
 
 
@@ -108,6 +123,10 @@ def parse_fx(payload: dict) -> list[EconomicPoint]:
         out.append(EconomicPoint("fx_gbp_ngn", "Exchange rate GBP → NGN", period,
                                  round(float(ngn) / float(rates["GBP"]), 2), "NGN/GBP",
                                  "open.er-api.com", FX_URL))
+    if rates.get("CNY"):
+        out.append(EconomicPoint("fx_cny_ngn", "Exchange rate CNY → NGN", period,
+                                 round(float(ngn) / float(rates["CNY"]), 2), "NGN/CNY",
+                                 "open.er-api.com", FX_URL))
     return out
 
 
@@ -145,7 +164,7 @@ class LiveMarketProvider:
 
     def fetch_indicators(self) -> list[EconomicPoint]:
         points: list[EconomicPoint] = []
-        with httpx.Client(timeout=_TIMEOUT, headers={"User-Agent": "DigitalTwin/1.0"}) as client:
+        with _client() as client:
             for key, label, unit, code in WB_INDICATORS:
                 try:
                     r = client.get(_wb_url(code))
@@ -162,10 +181,15 @@ class LiveMarketProvider:
         return points
 
     def fetch_news(self) -> list[MarketNews]:
-        try:
-            with httpx.Client(timeout=_TIMEOUT, headers={"User-Agent": "DigitalTwin/1.0"}) as c:
-                r = c.get(NEWS_URL)
-                return parse_rss(r.text)
-        except httpx.HTTPError as e:
-            logger.warning("News fetch failed: %s", e)
-            return []
+        seen: set[str] = set()
+        items: list[MarketNews] = []
+        with _client() as c:
+            for url in NEWS_URLS:  # local Nigerian feed + China/Asia trade feed
+                try:
+                    for n in parse_rss(c.get(url).text):
+                        if n.title and n.title not in seen:
+                            seen.add(n.title)
+                            items.append(n)
+                except httpx.HTTPError as e:
+                    logger.warning("News fetch failed for %s: %s", url, e)
+        return items
