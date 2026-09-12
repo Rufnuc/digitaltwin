@@ -47,3 +47,11 @@ def test_staff_can_create_customer(client, auth_headers):
                     json={"code": "CX-STAFF", "name": "Allowed"})
     assert r.status_code == 201, r.text
     assert r.json()["data_origin"] == "REAL"  # user-entered => REAL, not DEMO
+
+
+def test_refresh_reissues_token(client, auth_headers):
+    r = client.post("/api/v1/auth/refresh", headers=auth_headers("ANALYST"))
+    assert r.status_code == 200, r.text
+    assert r.json()["access_token"] and r.json()["role"] == "ANALYST"
+    # An unauthenticated request cannot refresh.
+    assert client.post("/api/v1/auth/refresh").status_code == 401

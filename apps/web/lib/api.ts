@@ -59,6 +59,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
   const res = await fetch(`${V1}${path}`, { ...init, headers });
   if (!res.ok) {
+    if (res.status === 401) onUnauthorized(path);
     let detail = res.statusText;
     try {
       const body = await res.json();
@@ -72,6 +73,16 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   return (await res.json()) as T;
 }
 
+// On an expired/invalid session, clear it and send the user to login — once,
+// and never for a failed login attempt (wrong password is not a dead session).
+function onUnauthorized(path: string) {
+  if (path.includes("/auth/login")) return;
+  clearSession();
+  if (typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
+    window.location.href = "/login";
+  }
+}
+
 export const api = {
   login: (email: string, password: string) =>
     request<{ access_token: string; role: string }>("/auth/login", {
@@ -79,6 +90,8 @@ export const api = {
       body: JSON.stringify({ email, password }),
     }),
   me: () => request<{ id: number; email: string; full_name: string; role: string }>("/auth/me"),
+  refresh: () =>
+    request<{ access_token: string; role: string }>("/auth/refresh", { method: "POST" }),
   dashboardSummary: () => request<DashboardSummary>("/dashboard/summary"),
   revenueSeries: () =>
     request<{ series: { period: string; revenue: number }[] }>("/dashboard/revenue-timeseries"),
@@ -215,6 +228,7 @@ async function requestForm<T>(path: string, body: FormData): Promise<T> {
   if (token) headers["Authorization"] = `Bearer ${token}`;
   const res = await fetch(`${V1}${path}`, { method: "POST", body, headers });
   if (!res.ok) {
+    if (res.status === 401) onUnauthorized(path);
     let detail = res.statusText;
     try {
       const b = await res.json();

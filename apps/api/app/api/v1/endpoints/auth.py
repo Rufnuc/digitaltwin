@@ -31,6 +31,17 @@ def me(user: User = Depends(get_current_user)) -> User:
     return user
 
 
+@router.post("/auth/refresh", response_model=Token)
+def refresh(user: User = Depends(get_current_user)) -> Token:
+    """Re-issue a fresh access token for the current (still-valid) session.
+
+    A sliding session: while the user is active and refreshes before expiry, they
+    stay logged in; an expired token cannot be refreshed and requires a new login.
+    """
+    token = create_access_token(subject=str(user.id), role=user.role)
+    return Token(access_token=token, role=user.role)
+
+
 @router.post("/auth/users", response_model=UserOut, status_code=status.HTTP_201_CREATED)
 def create_user(
     payload: UserCreate,

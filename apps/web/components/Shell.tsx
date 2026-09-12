@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import React, { useEffect, useState } from "react";
-import { clearSession, getRole, getToken } from "@/lib/api";
+import { api, clearSession, getRole, getToken, setSession } from "@/lib/api";
 import { NotificationBell } from "@/components/NotificationBell";
 import { type Role, roleAtLeast } from "@/lib/roles";
 import { getStoredTheme, resolveDark, setTheme } from "@/lib/theme";
@@ -58,6 +58,22 @@ export function Shell({ children }: { children: React.ReactNode }) {
     setOpen(initial);
     setReady(true);
   }, [router]);
+
+  // Silent session keep-alive: refresh the token now (covers a reopened tab) and
+  // every 20 min while the app is open, so an active session never expires.
+  useEffect(() => {
+    if (!getToken()) return;
+    const doRefresh = () =>
+      api
+        .refresh()
+        .then((r) => setSession(r.access_token, r.role))
+        .catch(() => {
+          /* an expired token can't refresh; the 401 handler routes to login */
+        });
+    doRefresh();
+    const t = setInterval(doRefresh, 20 * 60 * 1000);
+    return () => clearInterval(t);
+  }, []);
 
   function toggle() {
     setOpen((v) => {
