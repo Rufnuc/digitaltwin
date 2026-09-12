@@ -130,7 +130,7 @@ function AnswerCard({ r }: { r: AssistantResponse }) {
       <div className="whitespace-pre-wrap text-sm">{r.answer}</div>
 
       {r.actions_taken.length > 0 && (
-        <div className="mt-2 rounded border border-green-200 bg-green-50 px-2 py-1 text-xs text-green-800">
+        <div className="mt-2 rounded border border-green-500/30 bg-green-500/15 px-2 py-1 text-xs text-green-700 dark:text-green-300">
           ✓ Change applied: {r.actions_taken.join(", ")}
         </div>
       )}

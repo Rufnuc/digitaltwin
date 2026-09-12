@@ -3,15 +3,17 @@ import React from "react";
 
 // Provenance badge — the visual expression of the platform's core rule that
 // every value declares its epistemic status (REAL / DEMO / MODEL_OUTPUT / ...).
+// Uses translucent accent backgrounds + theme-aware text so it reads in both
+// light and dark themes (a solid light chip would wash out in dark mode).
 const ORIGIN_STYLES: Record<string, string> = {
   REAL: "bg-ink text-paper",
-  DEMO: "bg-yellow-200 text-ink border border-yellow-500",
-  ESTIMATED: "bg-wash text-muted border border-line",
-  MISSING: "bg-wash text-muted border border-dashed border-line",
-  ASSUMPTION: "bg-wash text-ink border border-line",
-  MODEL_OUTPUT: "bg-blue-50 text-blue-800 border border-blue-200",
-  FORECAST: "bg-purple-50 text-purple-800 border border-purple-200",
-  AI_INTERPRETATION: "bg-wash text-muted border border-line",
+  DEMO: "bg-yellow-500/15 text-yellow-700 dark:text-yellow-300 border border-yellow-500/40",
+  ESTIMATED: "bg-muted/10 text-muted border border-line",
+  MISSING: "bg-muted/10 text-muted border border-dashed border-line",
+  ASSUMPTION: "bg-muted/10 text-ink border border-line",
+  MODEL_OUTPUT: "bg-blue-500/15 text-blue-700 dark:text-blue-300 border border-blue-500/30",
+  FORECAST: "bg-purple-500/15 text-purple-700 dark:text-purple-300 border border-purple-500/30",
+  AI_INTERPRETATION: "bg-muted/10 text-muted border border-line",
 };
 
 export function ProvenanceBadge({ origin }: { origin: string }) {
@@ -47,8 +49,10 @@ export function Kpi({
 
 export function DemoBanner() {
   return (
-    <div className="mb-4 flex items-center gap-2 rounded-lg border border-yellow-500 bg-yellow-50 px-4 py-2 text-sm text-ink">
-      <span className="font-mono text-xs font-bold">DEMO DATA</span>
+    <div className="mb-4 flex items-center gap-2 rounded-lg border border-yellow-500/50 bg-yellow-500/10 px-4 py-2 text-sm text-ink">
+      <span className="font-mono text-xs font-bold text-yellow-700 dark:text-yellow-300">
+        DEMO DATA
+      </span>
       <span className="text-muted">
         This workspace contains synthetic demo data only — no real business records yet.
       </span>
@@ -77,11 +81,12 @@ export function LineChart({
   const py = (v: number) => h - pad - (v / maxY) * (h - pad * 2);
   const path = data.map((d, i) => `${i === 0 ? "M" : "L"}${px(i).toFixed(1)},${py(d.revenue).toFixed(1)}`).join(" ");
   return (
-    <svg viewBox={`0 0 ${w} ${h}`} className="w-full" role="img" aria-label="Revenue over time">
-      <line x1={pad} y1={h - pad} x2={w - pad} y2={h - pad} stroke="#e5e7eb" />
-      <path d={path} fill="none" stroke="#0a0a0a" strokeWidth={1.5} />
+    // stroke/fill use theme variables so the line stays visible in dark mode.
+    <svg viewBox={`0 0 ${w} ${h}`} className="w-full text-ink" role="img" aria-label="Revenue over time">
+      <line x1={pad} y1={h - pad} x2={w - pad} y2={h - pad} stroke="var(--line)" />
+      <path d={path} fill="none" stroke="var(--ink)" strokeWidth={1.5} />
       {data.map((d, i) => (
-        <circle key={i} cx={px(i)} cy={py(d.revenue)} r={2} fill="#0a0a0a" />
+        <circle key={i} cx={px(i)} cy={py(d.revenue)} r={2} fill="var(--ink)" />
       ))}
       <text x={pad} y={14} className="fill-muted" fontSize={10}>
         max {Math.round(maxY).toLocaleString()}

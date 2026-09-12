@@ -173,7 +173,7 @@ export default function AgentsPage() {
                   <tr
                     key={s.name}
                     className={`border-t border-line tabular-nums ${
-                      s.name === compare.best_by_expected_profit ? "bg-green-50" : ""
+                      s.name === compare.best_by_expected_profit ? "bg-green-500/15" : ""
                     }`}
                   >
                     <td className="px-3 py-2 font-medium">{s.name}</td>

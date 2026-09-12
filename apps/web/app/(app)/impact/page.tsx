@@ -54,7 +54,7 @@ export default function ImpactPage() {
         >
           Preview (no alerts)
         </button>
-        {alertsMsg && <span className="text-xs text-green-800">{alertsMsg}</span>}
+        {alertsMsg && <span className="text-xs text-green-700 dark:text-green-300">{alertsMsg}</span>}
         {error && <span className="text-sm text-red-700">{error}</span>}
       </div>
 
@@ -94,7 +94,7 @@ function AssessmentCard({ a }: { a: ImpactAssessment }) {
         <span
           className={`rounded border px-2 py-0.5 text-[10px] font-mono ${
             a.materiality.material
-              ? "border-red-300 bg-red-50 text-red-800"
+              ? "border-red-500/40 bg-red-500/15 text-red-700 dark:text-red-300"
               : "border-line text-muted"
           }`}
         >

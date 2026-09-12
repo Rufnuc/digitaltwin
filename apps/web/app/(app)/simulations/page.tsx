@@ -512,7 +512,7 @@ function CompareTab() {
                   <tr
                     key={s.name}
                     className={`border-t border-line tabular-nums ${
-                      s.name === result.best_by_net_profit ? "bg-green-50" : ""
+                      s.name === result.best_by_net_profit ? "bg-green-500/15" : ""
                     }`}
                   >
                     <td className="px-3 py-2 font-medium">{s.name}</td>

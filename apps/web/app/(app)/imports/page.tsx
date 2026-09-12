@@ -157,7 +157,7 @@ export default function ImportsPage() {
               </div>
 
               {requiredUnmapped.length > 0 && (
-                <div className="mt-3 rounded border border-yellow-400 bg-yellow-50 p-2 text-xs">
+                <div className="mt-3 rounded border border-yellow-500/50 bg-yellow-500/15 p-2 text-xs">
                   Required fields not yet mapped:{" "}
                   {requiredUnmapped.map((f) => f.name).join(", ")}
                 </div>

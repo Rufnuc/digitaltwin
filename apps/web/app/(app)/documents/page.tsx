@@ -8,10 +8,10 @@ import { money, pct } from "@/lib/format";
 const REVIEW_ROLES = ["ADMIN", "OWNER", "MANAGER"];
 
 const STATUS_STYLE: Record<string, string> = {
-  AI_EXTRACTED: "bg-blue-50 text-blue-800 border-blue-200",
-  NEEDS_REVIEW: "bg-yellow-50 text-yellow-800 border-yellow-300",
-  VERIFIED: "bg-green-50 text-green-800 border-green-200",
-  REJECTED: "bg-red-50 text-red-800 border-red-200",
+  AI_EXTRACTED: "bg-blue-500/15 text-blue-700 dark:text-blue-300 border-blue-500/30",
+  NEEDS_REVIEW: "bg-yellow-500/15 text-yellow-700 dark:text-yellow-300 border-yellow-500/40",
+  VERIFIED: "bg-green-500/15 text-green-700 dark:text-green-300 border-green-500/30",
+  REJECTED: "bg-red-500/15 text-red-700 dark:text-red-300 border-red-500/30",
 };
 
 export default function DocumentsPage() {
@@ -88,7 +88,7 @@ export default function DocumentsPage() {
           onChange={(e) => e.target.files?.[0] && onFile(e.target.files[0])}
           className="block w-full text-sm file:mr-3 file:rounded file:border file:border-line file:bg-wash file:px-3 file:py-1.5 file:text-sm"
         />
-        {note && <div className="mt-2 text-sm text-green-800">{note}</div>}
+        {note && <div className="mt-2 text-sm text-green-700 dark:text-green-300">{note}</div>}
         {error && <div className="mt-2 text-sm text-red-700">{error}</div>}
         {!canReview && (
           <div className="mt-2 text-[11px] text-muted">
@@ -194,7 +194,7 @@ function ExtractionCard({
       </div>
 
       {!e.validation.arithmetic_ok && (
-        <div className="mt-2 rounded border border-yellow-400 bg-yellow-50 p-2 text-xs">
+        <div className="mt-2 rounded border border-yellow-500/50 bg-yellow-500/15 p-2 text-xs">
           {e.validation.issues.map((iss, i) => (
             <div key={i}>⚠ {iss}</div>
           ))}

@@ -111,7 +111,7 @@ export default function ShippingPage() {
                     vessels.map((v) => (
                       <tr
                         key={v.mmsi}
-                        className={`border-t border-line ${v.bound_for_nigeria ? "bg-green-50" : ""}`}
+                        className={`border-t border-line ${v.bound_for_nigeria ? "bg-green-500/15" : ""}`}
                       >
                         <td className="px-3 py-2 font-medium">
                           {v.name}

@@ -6,8 +6,8 @@ import { Card, Kpi } from "@/components/ui";
 import { num } from "@/lib/format";
 
 const SEV_STYLE: Record<string, string> = {
-  high: "bg-red-50 text-red-800 border-red-200",
-  medium: "bg-yellow-50 text-yellow-800 border-yellow-300",
+  high: "bg-red-500/15 text-red-700 dark:text-red-300 border-red-500/30",
+  medium: "bg-yellow-500/15 text-yellow-700 dark:text-yellow-300 border-yellow-500/40",
   low: "bg-wash text-muted border-line",
 };
 
@@ -37,7 +37,7 @@ export default function DataQualityPage() {
       <Card className="p-4">
         <div className="mb-3 text-sm font-medium">Issues</div>
         {dq.issues.length === 0 ? (
-          <div className="rounded border border-green-200 bg-green-50 p-3 text-sm text-green-800">
+          <div className="rounded border border-green-500/30 bg-green-500/15 p-3 text-sm text-green-700 dark:text-green-300">
             No data-quality issues detected. ✓
           </div>
         ) : (

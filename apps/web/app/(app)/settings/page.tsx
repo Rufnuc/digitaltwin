@@ -148,7 +148,7 @@ function UsersPanel() {
                     onClick={() => change(u.id, { is_active: !u.is_active })}
                     className={`rounded border px-2 py-1 text-xs ${
                       u.is_active
-                        ? "border-green-300 bg-green-50 text-green-800"
+                        ? "border-green-500/40 bg-green-500/15 text-green-700 dark:text-green-300"
                         : "border-line text-muted"
                     }`}
                   >
@@ -250,13 +250,13 @@ function DataPanel() {
       {!confirming ? (
         <button
           onClick={() => setConfirming(true)}
-          className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800 hover:bg-red-100"
+          className="rounded border border-red-500/40 bg-red-500/15 px-3 py-2 text-sm text-red-700 dark:text-red-300 hover:bg-red-500/150/25"
         >
           Delete all demo data…
         </button>
       ) : (
         <div className="flex items-center gap-2">
-          <span className="text-sm text-red-800">
+          <span className="text-sm text-red-700 dark:text-red-300">
             This permanently deletes {stats ? num(stats.total_demo_rows) : ""} demo rows. Sure?
           </span>
           <button
@@ -273,7 +273,7 @@ function DataPanel() {
           </button>
         </div>
       )}
-      {msg && <div className="mt-2 text-sm text-green-800">{msg}</div>}
+      {msg && <div className="mt-2 text-sm text-green-700 dark:text-green-300">{msg}</div>}
       {error && <div className="mt-2 text-sm text-red-700">{error}</div>}
     </Card>
   );

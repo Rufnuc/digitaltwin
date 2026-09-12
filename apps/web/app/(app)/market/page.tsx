@@ -60,7 +60,7 @@ export default function MarketPage() {
         ) : (
           <span className="text-xs text-muted">Analyst or higher can refresh from sources.</span>
         )}
-        {msg && <span className="text-xs text-green-800">{msg}</span>}
+        {msg && <span className="text-xs text-green-700 dark:text-green-300">{msg}</span>}
         {error && <span className="text-sm text-red-700">{error}</span>}
       </div>
 
