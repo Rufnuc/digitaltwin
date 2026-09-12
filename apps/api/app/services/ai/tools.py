@@ -308,16 +308,77 @@ def _save_simulation(db: Session, scenario_type: str = "price_change", change_pe
     }
 
 
-def _agent_forecast(db: Session, price_change_percent: float = 0.0, horizon_months: int = 12,
-                    iterations: int = 300) -> dict:
-    res = agent_sim.simulate(db, {"price_change_percent": price_change_percent},
-                             horizon_months, iterations, None)
+# Behavioural levers the assistant may tune on the digital-twin agents. Kept as an
+# allow-list so the model can only touch known assumptions (each defaults from
+# agent_sim.DEFAULT_ASSUMPTIONS when omitted).
+_AGENT_ASSUMPTION_KEYS = (
+    "price_elasticity",
+    "base_monthly_churn",
+    "churn_risk_multiplier",
+    "competitor_price_index",
+    "competitor_sensitivity",
+    "macro_demand_drag",
+    "fx_annual_depreciation",
+)
+
+
+def _pick_assumptions(kwargs: dict) -> dict:
+    """Collect any behavioural-assumption overrides the caller supplied."""
+    return {k: float(kwargs[k]) for k in _AGENT_ASSUMPTION_KEYS if kwargs.get(k) is not None}
+
+
+def _describe_agents(db: Session) -> dict:
+    """The digital-twin agent roster and the levers the assistant can tune."""
+    return {
+        "agents": agent_sim.AGENT_ROSTER,
+        "default_assumptions": agent_sim.DEFAULT_ASSUMPTIONS,
+        "tunable_assumptions": list(_AGENT_ASSUMPTION_KEYS),
+        "policy_levers": ["price_change_percent", "monthly_opex_delta"],
+        "note": "Agents are calibrated from REAL data; behaviour is ASSUMPTION; "
+                "outcomes are FORECASTS with uncertainty.",
+    }
+
+
+def _agent_forecast(db: Session, price_change_percent: float = 0.0,
+                    monthly_opex_delta: float = 0.0, horizon_months: int = 12,
+                    iterations: int = 300, **assumptions) -> dict:
+    policy = {"price_change_percent": float(price_change_percent),
+              "monthly_opex_delta": float(monthly_opex_delta)}
+    overrides = _pick_assumptions(assumptions)
+    res = agent_sim.simulate(db, policy, horizon_months, iterations, overrides or None)
     if res is None:
         return {"error": "no customer data to calibrate agents"}
-    return {"cumulative_net_profit": res["cumulative_net_profit"],
+    return {"policy": res["policy"],
+            "horizon_months": res["horizon_months"],
+            "iterations": res["iterations"],
+            "cumulative_net_profit": res["cumulative_net_profit"],
             "probability_of_loss": res["probability_of_cumulative_loss"],
             "expected_active_customers_end": res["expected_active_customers_end"],
-            "customers_start": res["customers_start"]}
+            "customers_start": res["customers_start"],
+            "assumptions_used": res["assumptions"],
+            "provenance": res["provenance"]}
+
+
+def _compare_agent_strategies(db: Session, strategies: list | None = None,
+                              horizon_months: int = 12, iterations: int = 300,
+                              **assumptions) -> dict:
+    """Run several named policies through the agents and rank them by expected profit."""
+    if not strategies:
+        return {"error": "provide a list of strategies, each with a name and "
+                         "price_change_percent (and optional monthly_opex_delta)"}
+    norm = []
+    for i, s in enumerate(strategies):
+        s = s or {}
+        norm.append({
+            "name": str(s.get("name", f"strategy {i + 1}")),
+            "price_change_percent": float(s.get("price_change_percent", 0.0)),
+            "monthly_opex_delta": float(s.get("monthly_opex_delta", 0.0)),
+        })
+    overrides = _pick_assumptions(assumptions)
+    res = agent_sim.compare_policies(db, norm, horizon_months, iterations, overrides or None)
+    if res is None:
+        return {"error": "no customer data to calibrate agents"}
+    return res
 
 
 # --------------------------------------------------------------------------- #
@@ -461,10 +522,67 @@ TOOLS: list[ToolDef] = [
         _save_simulation, provenance="MODEL_OUTPUT", mutating=True, min_role=Role.ANALYST.value,
     ),
     ToolDef(
+        "describe_agents",
+        "List the digital-twin agents (Customer, Supplier, Competitor, Market), how each is "
+        "calibrated, and the behavioural assumptions and policy levers you can tune. Call this "
+        "first when the user asks about, or wants to steer, the agents.",
+        {"type": "object", "properties": {}},
+        _describe_agents, provenance="MODEL_OUTPUT", mutating=False, min_role=Role.VIEWER.value,
+    ),
+    ToolDef(
         "run_agent_forecast",
-        "Run the multi-agent digital-twin forecast for a price policy.",
-        {"type": "object", "properties": {"price_change_percent": {"type": "number"}}},
+        "Run the multi-agent digital-twin Monte Carlo forecast for a business policy. Tune the "
+        "policy (price change, monthly opex delta) and any behavioural assumptions to steer how "
+        "the agents behave. Returns a distribution (mean/p5/p95) of cumulative net profit, the "
+        "probability of loss, and expected customers retained. Outcomes are FORECASTS.",
+        {"type": "object", "properties": {
+            "price_change_percent": {"type": "number",
+                                     "description": "our price change, e.g. 10 or -5"},
+            "monthly_opex_delta": {"type": "number",
+                                   "description": "change to monthly operating expenses (₦)"},
+            "horizon_months": {"type": "integer", "description": "months to simulate (1-60)"},
+            "iterations": {"type": "integer", "description": "Monte Carlo iterations (50-5000)"},
+            "price_elasticity": {"type": "number",
+                                 "description": "demand response to price (default -0.8)"},
+            "base_monthly_churn": {"type": "number",
+                                   "description": "monthly churn hazard (default 0.02)"},
+            "churn_risk_multiplier": {"type": "number",
+                                      "description": "×hazard for at-risk customers (default 3)"},
+            "competitor_price_index": {"type": "number",
+                                       "description": "competitor price ÷ our baseline (def 1)"},
+            "competitor_sensitivity": {"type": "number",
+                                       "description": "demand lost per unit price premium (0.5)"},
+            "macro_demand_drag": {"type": "number",
+                                  "description": "fraction of inflation that dampens demand (0.3)"},
+            "fx_annual_depreciation": {"type": "number",
+                                       "description": "extra annual cost drift from FX (def 0)"},
+        }},
         _agent_forecast, provenance="FORECAST", mutating=False, min_role=Role.VIEWER.value,
+    ),
+    ToolDef(
+        "compare_agent_strategies",
+        "Run several named policies through the digital-twin agents and rank them by expected "
+        "cumulative net profit (with p5/p95 and probability of loss). Use this to answer 'which "
+        "strategy is best?'. Behavioural assumptions apply to every strategy for fairness.",
+        {"type": "object", "properties": {
+            "strategies": {
+                "type": "array",
+                "description": "policies to compare",
+                "items": {"type": "object", "properties": {
+                    "name": {"type": "string"},
+                    "price_change_percent": {"type": "number"},
+                    "monthly_opex_delta": {"type": "number"},
+                }},
+            },
+            "horizon_months": {"type": "integer"},
+            "iterations": {"type": "integer"},
+            "price_elasticity": {"type": "number"},
+            "base_monthly_churn": {"type": "number"},
+            "competitor_price_index": {"type": "number"},
+            "macro_demand_drag": {"type": "number"},
+        }, "required": ["strategies"]},
+        _compare_agent_strategies, provenance="FORECAST", mutating=False,
+        min_role=Role.VIEWER.value,
     ),
 ]
 
