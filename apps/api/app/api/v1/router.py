@@ -62,6 +62,7 @@ api_router.include_router(
         entity_type="customer",
         tags=["customers"],
         search_fields=("name", "code", "location"),
+        auto_code_prefix="CUS-",
     ),
     prefix="/customers",
 )

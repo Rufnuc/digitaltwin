@@ -11,7 +11,7 @@ from app.models.events import (  # noqa: F401
 from app.models.expense import Expense  # noqa: F401
 from app.models.extraction import ExtractedInvoice  # noqa: F401
 from app.models.inventory import Inventory  # noqa: F401
-from app.models.invoice import Invoice, InvoiceLine  # noqa: F401
+from app.models.invoice import Invoice, InvoiceLine, InvoiceVersion  # noqa: F401
 from app.models.organization import Branch, Employee  # noqa: F401
 from app.models.product import Product, ProductPriceHistory  # noqa: F401
 from app.models.provenance import DataImport, DataSource, Document  # noqa: F401
@@ -32,6 +32,7 @@ __all__ = [
     "ProductPriceHistory",
     "Invoice",
     "InvoiceLine",
+    "InvoiceVersion",
     "Purchase",
     "PurchaseLine",
     "Inventory",

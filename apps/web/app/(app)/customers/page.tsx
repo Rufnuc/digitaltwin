@@ -7,7 +7,6 @@ const STATUS = ["ACTIVE", "INACTIVE", "PROSPECT", "ARCHIVED"];
 const TYPES = ["RETAIL", "WHOLESALE", "TRADE", "OTHER"];
 
 const formFields: FormField[] = [
-  { key: "code", label: "Code", required: true, placeholder: "CUS-0001" },
   { key: "name", label: "Name", required: true },
   { key: "location", label: "Location" },
   { key: "contact_email", label: "Email" },

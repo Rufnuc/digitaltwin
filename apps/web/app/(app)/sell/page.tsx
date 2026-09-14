@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { PageHeader } from "@/components/Shell";
 import { Card } from "@/components/ui";
@@ -178,6 +179,9 @@ export default function SellPage() {
 
   return (
     <div>
+      <Link href="/invoices" className="mb-2 inline-block text-sm text-muted hover:text-ink">
+        ← Back to Invoices
+      </Link>
       <PageHeader
         title="New Sale"
         subtitle="Bill a customer and draw the goods from a warehouse — stock decrements FIFO and every unit is traced to the buyer. Bought something from another seller to resell? Add it to stock first."

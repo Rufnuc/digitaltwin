@@ -38,10 +38,23 @@ def build_crud_router(
     write_role: Role = Role.STAFF,
     delete_role: Role = Role.MANAGER,
     search_fields: tuple[str, ...] = ("name",),
+    auto_code_prefix: str | None = None,
 ) -> APIRouter:
     router = APIRouter(tags=tags)
 
     columns = set(model.__table__.columns.keys())
+
+    def _next_code(db: Session) -> str:
+        """Generate the next sequential code like PREFIX0001, filling gaps safely."""
+        rows = db.scalars(select(model.code)).all()  # type: ignore[attr-defined]
+        n = 0
+        for c in rows:
+            if c and c.startswith(auto_code_prefix):
+                try:
+                    n = max(n, int(c[len(auto_code_prefix):]))
+                except ValueError:
+                    continue
+        return f"{auto_code_prefix}{n + 1:04d}"
 
     @router.get("", response_model=dict)
     def list_items(
@@ -117,7 +130,11 @@ def build_crud_router(
         db: Session = Depends(db_session),
         user: User = Depends(require_role(write_role)),
     ) -> Any:
-        obj = model(**payload.model_dump())
+        data = payload.model_dump()
+        # Auto-generate the code when the resource opts in and none was supplied.
+        if auto_code_prefix and not data.get("code"):
+            data["code"] = _next_code(db)
+        obj = model(**data)
         db.add(obj)
         try:
             db.commit()

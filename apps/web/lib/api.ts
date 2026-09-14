@@ -130,6 +130,11 @@ export const api = {
       "/invoices/sell",
       { method: "POST", body: JSON.stringify(body) },
     ),
+  invoiceDetail: (id: number) => request<InvoiceDetail>(`/invoices/${id}`),
+  invoiceVersions: (id: number) =>
+    request<{ items: InvoiceVersionRow[] }>(`/invoices/${id}/versions`),
+  invoiceUpdate: (id: number, body: unknown) =>
+    request<InvoiceDetail>(`/invoices/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   scenarioTypes: () => request<{ implemented: string[] }>("/simulations/scenario-types"),
   createSimulation: (body: unknown) =>
     request<Simulation>("/simulations", { method: "POST", body: JSON.stringify(body) }),
@@ -437,6 +442,37 @@ export interface ShippingStatus {
   };
   last_message_at: string | null;
   error: string | null;
+}
+export interface InvoiceDetail {
+  id: number;
+  invoice_number: string;
+  invoice_date: string;
+  customer_id: number | null;
+  customer_name: string | null;
+  currency: string;
+  subtotal: number;
+  discount: number;
+  tax: number;
+  total: number;
+  verification_status: string;
+  created_by: string | null;
+  updated_by: string | null;
+  version_no: number;
+  version_count: number;
+  lines: {
+    product_id: number | null;
+    original_description: string | null;
+    quantity: number;
+    unit_price: number;
+    line_total: number;
+  }[];
+}
+export interface InvoiceVersionRow {
+  version_no: number;
+  snapshot: Record<string, unknown>;
+  changed_by: string | null;
+  change_note: string | null;
+  changed_at: string | null;
 }
 export interface StockLot {
   id: number;

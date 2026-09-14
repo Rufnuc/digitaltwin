@@ -9,7 +9,8 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.api.deps import db_session, get_current_user, require_role
 from app.core.enums import AuditAction, Role, VerificationStatus
-from app.models.invoice import Invoice, InvoiceLine
+from app.models.customer import Customer
+from app.models.invoice import Invoice, InvoiceLine, InvoiceVersion
 from app.models.user import User
 from app.schemas.entities import InvoiceCreate, InvoiceOut
 from app.services import audit, stock
@@ -17,6 +18,42 @@ from app.services import audit, stock
 router = APIRouter(tags=["invoices"])
 
 _TOLERANCE = 0.01  # currency rounding tolerance for arithmetic validation
+_SORTABLE = {"invoice_number", "invoice_date", "total", "subtotal", "tax", "id"}
+
+
+def _snapshot(inv: Invoice) -> dict:
+    """A complete, immutable picture of an invoice for the version history."""
+    return {
+        "invoice_number": inv.invoice_number,
+        "invoice_date": inv.invoice_date.isoformat() if inv.invoice_date else None,
+        "customer_id": inv.customer_id,
+        "currency": inv.currency,
+        "subtotal": float(inv.subtotal or 0),
+        "discount": float(inv.discount or 0),
+        "tax": float(inv.tax or 0),
+        "total": float(inv.total or 0),
+        "verification_status": inv.verification_status,
+        "lines": [
+            {"product_id": ln.product_id, "description": ln.original_description,
+             "quantity": float(ln.quantity or 0), "unit_price": float(ln.unit_price or 0),
+             "line_total": float(ln.line_total or 0)}
+            for ln in inv.lines
+        ],
+    }
+
+
+def _record_version(db: Session, inv: Invoice, user_id: int | None, note: str) -> None:
+    db.add(InvoiceVersion(
+        invoice_id=inv.id, version_no=inv.version_no, snapshot=_snapshot(inv),
+        changed_by_user_id=user_id, change_note=note,
+    ))
+
+
+def _user_names(db: Session) -> dict[int, str]:
+    return {
+        u.id: (u.full_name or u.email)
+        for u in db.query(User.id, User.full_name, User.email).all()
+    }
 
 
 @router.get("")
@@ -26,28 +63,126 @@ def list_invoices(
     limit: int = Query(50, le=200),
     offset: int = Query(0, ge=0),
     customer_id: int | None = None,
+    q: str | None = Query(None, description="search invoice number"),
+    verification_status: str | None = Query(None),
+    sort: str | None = Query(None),
+    sort_dir: str = Query("asc"),
 ) -> dict:
     stmt = select(Invoice).options(selectinload(Invoice.lines))
     if customer_id is not None:
         stmt = stmt.where(Invoice.customer_id == customer_id)
+    if q:
+        stmt = stmt.where(Invoice.invoice_number.ilike(f"%{q}%"))
+    if verification_status:
+        stmt = stmt.where(Invoice.verification_status == verification_status)
+    col = getattr(Invoice, sort) if sort in _SORTABLE else Invoice.id
+    stmt = stmt.order_by(col.desc() if sort_dir == "desc" else col.asc())
     total = db.scalar(select(func.count()).select_from(stmt.subquery()))
-    rows = db.scalars(stmt.order_by(Invoice.id).limit(limit).offset(offset)).all()
+    rows = db.scalars(stmt.limit(limit).offset(offset)).all()
+    names = _user_names(db)
+    items = []
+    for r in rows:
+        d = InvoiceOut.model_validate(r).model_dump(mode="json")
+        d["created_by"] = names.get(r.created_by_user_id)
+        d["version_no"] = r.version_no
+        items.append(d)
     return {
-        "items": [InvoiceOut.model_validate(r).model_dump(mode="json") for r in rows],
+        "items": items,
         "total": int(total or 0),
         "limit": limit,
         "offset": offset,
+        "sortable_fields": sorted(_SORTABLE),
     }
 
 
-@router.get("/{invoice_id}", response_model=InvoiceOut)
+@router.get("/{invoice_id}")
 def get_invoice(
     invoice_id: int, db: Session = Depends(db_session), _: User = Depends(get_current_user)
-) -> Invoice:
+) -> dict:
     obj = db.get(Invoice, invoice_id)
     if obj is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"Invoice {invoice_id} not found")
-    return obj
+    names = _user_names(db)
+    cust = db.get(Customer, obj.customer_id) if obj.customer_id else None
+    d = InvoiceOut.model_validate(obj).model_dump(mode="json")
+    d.update({
+        "customer_name": cust.name if cust else None,
+        "created_by": names.get(obj.created_by_user_id),
+        "updated_by": names.get(obj.updated_by_user_id),
+        "version_no": obj.version_no,
+        "version_count": db.scalar(
+            select(func.count()).select_from(InvoiceVersion)
+            .where(InvoiceVersion.invoice_id == invoice_id)
+        ) or 0,
+    })
+    return d
+
+
+@router.get("/{invoice_id}/versions")
+def invoice_versions(
+    invoice_id: int, db: Session = Depends(db_session), _: User = Depends(get_current_user)
+) -> dict:
+    if db.get(Invoice, invoice_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Invoice {invoice_id} not found")
+    names = _user_names(db)
+    rows = db.scalars(
+        select(InvoiceVersion).where(InvoiceVersion.invoice_id == invoice_id)
+        .order_by(InvoiceVersion.version_no.desc())
+    ).all()
+    return {
+        "items": [
+            {"version_no": v.version_no, "snapshot": v.snapshot,
+             "changed_by": names.get(v.changed_by_user_id), "change_note": v.change_note,
+             "changed_at": v.created_at.isoformat() if v.created_at else None}
+            for v in rows
+        ],
+        "provenance": "REAL",
+    }
+
+
+class InvoicePatch(BaseModel):
+    invoice_date: date | None = None
+    customer_id: int | None = None
+    tax: float | None = None
+    discount: float | None = None
+    verification_status: str | None = None
+    change_note: str | None = None
+
+
+@router.patch("/{invoice_id}")
+def update_invoice(
+    invoice_id: int,
+    payload: InvoicePatch,
+    db: Session = Depends(db_session),
+    user: User = Depends(require_role(Role.MANAGER)),
+) -> dict:
+    """Edit an invoice's header. Every edit keeps the prior state as a version, so
+    the full history is preserved and attributed."""
+    inv = db.get(Invoice, invoice_id)
+    if inv is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Invoice {invoice_id} not found")
+
+    fields = payload.model_dump(exclude_unset=True, exclude={"change_note"})
+    if not fields:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "no changes supplied")
+    old = {k: getattr(inv, k) for k in fields}
+    for k, v in fields.items():
+        setattr(inv, k, v)
+    # Totals follow from the (possibly changed) tax/discount.
+    inv.total = round(float(inv.subtotal or 0) + float(inv.tax or 0) - float(inv.discount or 0), 2)
+    inv.updated_by_user_id = user.id
+    inv.version_no += 1
+    _record_version(db, inv, user.id, payload.change_note or "edited")
+    db.commit()
+    db.refresh(inv)
+    audit.record(
+        db, action=AuditAction.UPDATE, user_id=user.id, entity_type="invoice",
+        entity_id=inv.id,
+        old_value={k: str(v) for k, v in old.items()},
+        new_value={k: str(v) for k, v in fields.items()},
+        summary=f"invoice {inv.invoice_number} edited to v{inv.version_no}",
+    )
+    return get_invoice(inv.id, db, user)
 
 
 @router.post("", response_model=InvoiceOut, status_code=status.HTTP_201_CREATED)
@@ -83,6 +218,8 @@ def create_invoice(
         total=total,
         verification_status=verification,
         source_reference="; ".join(warnings) if warnings else None,
+        created_by_user_id=user.id,
+        version_no=1,
     )
     for line in payload.lines:
         invoice.lines.append(
@@ -97,6 +234,8 @@ def create_invoice(
             )
         )
     db.add(invoice)
+    db.flush()
+    _record_version(db, invoice, user.id, "created")
     db.commit()
     db.refresh(invoice)
     audit.record(
@@ -149,6 +288,7 @@ def sell(
         customer_id=payload.customer_id, currency=payload.currency,
         subtotal=subtotal, discount=payload.discount, tax=payload.tax, total=total,
         verification_status=VerificationStatus.VERIFIED.value,
+        created_by_user_id=user.id, version_no=1,
     )
     db.add(invoice)
     db.flush()  # assign invoice.id for the stock movements
@@ -176,6 +316,7 @@ def sell(
         db.rollback()
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
 
+    _record_version(db, invoice, user.id, "sale created")
     db.commit()
     db.refresh(invoice)
     audit.record(

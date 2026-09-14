@@ -26,7 +26,8 @@ class CustomerBase(BaseModel):
 
 
 class CustomerCreate(CustomerBase):
-    pass
+    # Code is auto-generated (CUS-####) when omitted.
+    code: str | None = None
 
 
 class CustomerUpdate(BaseModel):
