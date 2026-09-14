@@ -451,8 +451,20 @@ export interface StockLot {
   quantity_received: number;
   quantity_remaining: number;
   unit_cost: number | null;
+  shipment_ref: string | null;
+  vessel_mmsi: number | null;
   status: string;
   note: string | null;
+}
+export interface VesselSnapshot {
+  mmsi: number;
+  tracked: boolean;
+  name?: string | null;
+  region?: string | null;
+  origin_region?: string | null;
+  bound_for_nigeria?: boolean;
+  arrived_nigeria?: boolean;
+  last_seen?: string | null;
 }
 export interface StockMovement {
   id: number;
@@ -470,6 +482,7 @@ export interface StockLotDetail extends StockLot {
   movements: StockMovement[];
   sold_to: string[];
   invoices: number[];
+  vessel: VesselSnapshot | null;
 }
 export interface LaneSignal {
   lane: string;

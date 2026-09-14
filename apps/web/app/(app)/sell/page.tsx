@@ -144,6 +144,7 @@ export default function SellPage() {
     { key: "unit_cost", label: "What you paid per unit (₦)", type: "number", step: "0.01", required: true },
     { key: "supplier_id", label: "Seller (if a saved supplier)", type: "select",
       options: suppliers.map((s) => ({ value: String(s.id), label: `${s.code} — ${s.name}` })) },
+    { key: "shipment_ref", label: "Shipment / reference", placeholder: "receipt, B-L, or vessel" },
     { key: "note", label: "Seller / reference note", placeholder: "e.g. bought from Musa Auto, Ladipo",
       help: "Use this if the seller isn't a saved supplier." },
   ];
@@ -371,6 +372,7 @@ export default function SellPage() {
               warehouse_id: Number(warehouseId),
               quantity: Number(v.quantity),
               unit_cost: v.unit_cost != null ? Number(v.unit_cost) : undefined,
+              shipment_ref: v.shipment_ref,
               note: v.note,
             };
             if (v.supplier_id) body.supplier_id = Number(v.supplier_id);

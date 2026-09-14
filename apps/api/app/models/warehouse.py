@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, ForeignKey, Integer, String, func
+from sqlalchemy import BigInteger, Date, DateTime, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, ProvenanceMixin, TimestampMixin
@@ -65,6 +65,10 @@ class StockLot(Base, TimestampMixin, ProvenanceMixin):
     quantity_received: Mapped[int] = mapped_column(Integer, default=0)
     quantity_remaining: Mapped[int] = mapped_column(Integer, default=0, index=True)
     unit_cost: Mapped[float | None] = mapped_column(MONEY, nullable=True)  # landed cost basis
+    # How the goods arrived: a free-text shipment / bill-of-lading reference, and an
+    # optional AIS vessel MMSI to link the lot to the voyage on the shipping monitor.
+    shipment_ref: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    vessel_mmsi: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     # IN_STOCK while quantity_remaining > 0, else DEPLETED.
     status: Mapped[str] = mapped_column(String(24), default="IN_STOCK", index=True)
     note: Mapped[str | None] = mapped_column(String(512), nullable=True)

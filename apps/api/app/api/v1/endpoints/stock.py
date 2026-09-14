@@ -28,6 +28,8 @@ class ReceiveRequest(BaseModel):
     received_date: date | None = None
     supplier_id: int | None = None
     purchase_id: int | None = None
+    shipment_ref: str | None = None
+    vessel_mmsi: int | None = None
     note: str | None = None
 
 

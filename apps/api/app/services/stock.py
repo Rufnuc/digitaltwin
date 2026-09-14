@@ -55,6 +55,7 @@ def receive_stock(
     db: Session, *, product_id: int, warehouse_id: int, quantity: int,
     unit_cost: float | None = None, received_date: date | None = None,
     supplier_id: int | None = None, purchase_id: int | None = None,
+    shipment_ref: str | None = None, vessel_mmsi: int | None = None,
     note: str | None = None, user_id: int | None = None, commit: bool = True,
 ) -> StockLot:
     """Bring a batch of a product into a warehouse — creates a lot (marker) and a
@@ -70,6 +71,7 @@ def receive_stock(
         supplier_id=supplier_id, purchase_id=purchase_id, received_date=received,
         quantity_received=quantity, quantity_remaining=quantity,
         unit_cost=unit_cost if unit_cost is not None else product.purchase_cost,
+        shipment_ref=shipment_ref, vessel_mmsi=vessel_mmsi,
         status="IN_STOCK", note=note,
     )
     db.add(lot)
@@ -251,12 +253,32 @@ def _lot_dict(lot: StockLot, names: dict, movements: list | None = None) -> dict
         "quantity_received": lot.quantity_received,
         "quantity_remaining": lot.quantity_remaining,
         "unit_cost": lot.unit_cost,
+        "shipment_ref": lot.shipment_ref,
+        "vessel_mmsi": lot.vessel_mmsi,
         "status": lot.status,
         "note": lot.note,
     }
     if movements is not None:
         d["movements"] = movements
     return d
+
+
+def _vessel_snapshot(mmsi: int | None) -> dict | None:
+    """If the lot names a vessel we track, its latest known status (REAL AIS)."""
+    if not mmsi:
+        return None
+    from app.services.shipping import collector
+
+    v = collector.store.vessels.get(int(mmsi))
+    if not v:
+        return {"mmsi": mmsi, "tracked": False}
+    return {
+        "mmsi": mmsi, "tracked": True, "name": v.get("name"),
+        "region": v.get("region"), "origin_region": v.get("origin_region"),
+        "bound_for_nigeria": v.get("bound_for_nigeria"),
+        "arrived_nigeria": v.get("arrived_nigeria"),
+        "last_seen": v.get("last_seen"),
+    }
 
 
 def list_lots(db: Session, *, product_id: int | None = None, warehouse_id: int | None = None,
@@ -295,6 +317,7 @@ def lot_detail(db: Session, lot_id: int) -> dict | None:
         **_lot_dict(lot, names, [_movement_dict(m, names) for m in moves]),
         "sold_to": buyers,
         "invoices": sorted({m.invoice_id for m in moves if m.invoice_id}),
+        "vessel": _vessel_snapshot(lot.vessel_mmsi),
     }
 
 

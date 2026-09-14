@@ -13,6 +13,7 @@ export default function StockPage() {
   const [lots, setLots] = useState<StockLot[]>([]);
   const [warehouses, setWarehouses] = useState<{ id: number; name: string; code: string }[]>([]);
   const [products, setProducts] = useState<{ id: number; name: string; code: string }[]>([]);
+  const [suppliers, setSuppliers] = useState<{ id: number; name: string; code: string }[]>([]);
   const [warehouseId, setWarehouseId] = useState("");
   const [inStockOnly, setInStockOnly] = useState(true);
   const [detail, setDetail] = useState<StockLotDetail | null>(null);
@@ -48,10 +49,14 @@ export default function StockPage() {
     api.list<{ id: number; name: string; code: string }>("products", "?limit=200")
       .then((r) => setProducts(r.items))
       .catch(() => {});
+    api.list<{ id: number; name: string; code: string }>("suppliers", "?limit=200")
+      .then((r) => setSuppliers(r.items))
+      .catch(() => {});
   }, []);
 
   const whOpts: Opt[] = warehouses.map((w) => ({ value: String(w.id), label: `${w.code} — ${w.name}` }));
   const prodOpts: Opt[] = products.map((p) => ({ value: String(p.id), label: `${p.code} — ${p.name}` }));
+  const supplierOpts: Opt[] = suppliers.map((s) => ({ value: String(s.id), label: `${s.code} — ${s.name}` }));
 
   async function openTrace(lot: StockLot) {
     setDetail(null);
@@ -62,10 +67,14 @@ export default function StockPage() {
   const receiveFields: FormField[] = [
     { key: "product_id", label: "Product", type: "select", options: prodOpts, required: true },
     { key: "warehouse_id", label: "Warehouse", type: "select", options: whOpts, required: true },
+    { key: "supplier_id", label: "Supplier / source", type: "select", options: supplierOpts },
     { key: "quantity", label: "Quantity", type: "number", required: true },
     { key: "unit_cost", label: "Landed unit cost (₦)", type: "number", step: "0.01",
       help: "Leave blank to use the product's purchase cost." },
     { key: "received_date", label: "Received date", type: "date" },
+    { key: "shipment_ref", label: "Shipment / B-L reference", placeholder: "MV EVER GIVEN · BL-12345" },
+    { key: "vessel_mmsi", label: "Vessel MMSI (optional)", type: "number",
+      help: "If the ship is on the shipping monitor, the marker links to its live voyage." },
     { key: "note", label: "Note", type: "textarea" },
   ];
 
@@ -79,7 +88,8 @@ export default function StockPage() {
 
   const coerceIds = (v: Record<string, unknown>) => {
     const out = { ...v };
-    for (const k of ["product_id", "warehouse_id", "from_warehouse_id", "to_warehouse_id"]) {
+    for (const k of ["product_id", "warehouse_id", "from_warehouse_id", "to_warehouse_id",
+                     "supplier_id", "vessel_mmsi"]) {
       if (out[k] != null) out[k] = Number(out[k]);
     }
     return out;
@@ -308,6 +318,35 @@ function TraceDrawer({ detail, onClose }: { detail: StockLotDetail; onClose: () 
           <Field label="Unit cost" value={detail.unit_cost != null ? money2(detail.unit_cost) : "—"} />
           <Field label="Status" value={detail.status} />
         </div>
+
+        {(detail.shipment_ref || detail.vessel) && (
+          <div className="mb-4 rounded-lg border border-line bg-wash p-3 text-sm">
+            <div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted">
+              How it arrived
+            </div>
+            {detail.shipment_ref && <div>Shipment: {detail.shipment_ref}</div>}
+            {detail.vessel && (
+              <div className="mt-1 text-xs text-muted">
+                {detail.vessel.tracked ? (
+                  <>
+                    Vessel {detail.vessel.name ?? detail.vessel.mmsi}
+                    {detail.vessel.region ? ` · ${detail.vessel.region}` : ""}
+                    {detail.vessel.arrived_nigeria
+                      ? " · ✓ arrived Nigeria"
+                      : detail.vessel.bound_for_nigeria
+                        ? " · → Nigeria"
+                        : ""}
+                    {detail.vessel.last_seen
+                      ? ` · seen ${new Date(detail.vessel.last_seen).toLocaleString()}`
+                      : ""}
+                  </>
+                ) : (
+                  <>Vessel MMSI {detail.vessel.mmsi} (not currently on the shipping monitor)</>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         {detail.sold_to.length > 0 && (
           <div className="mb-4 rounded-lg border border-line bg-wash p-3 text-sm">
