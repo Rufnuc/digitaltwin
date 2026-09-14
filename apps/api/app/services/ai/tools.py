@@ -21,6 +21,7 @@ from app.core.enums import AuditAction, DataOrigin, Role
 from app.core.security import role_at_least
 from app.models.customer import Customer
 from app.models.inventory import Inventory
+from app.models.invoice import Invoice
 from app.models.product import Product, ProductPriceHistory
 from app.models.simulation import SimulationRun
 from app.services import audit
@@ -59,6 +60,60 @@ class ToolDef:
 # --------------------------------------------------------------------------- #
 def _business_summary(db: Session) -> dict:
     return dashboard_summary(db)
+
+
+def _data_provenance(db: Session) -> dict:
+    """Honest demo-vs-real split of the sales data an analysis rests on."""
+    total = int(db.scalar(select(func.count()).select_from(Invoice)) or 0)
+    demo = int(db.scalar(
+        select(func.count()).select_from(Invoice)
+        .where(Invoice.data_origin == DataOrigin.DEMO.value)
+    ) or 0)
+    real = total - demo
+    if total == 0:
+        basis = "NO_DATA"
+    elif demo == total:
+        basis = "ALL_DEMO"
+    elif demo == 0:
+        basis = "ALL_REAL"
+    else:
+        basis = "MIXED"
+    return {
+        "invoices_total": total, "invoices_demo": demo, "invoices_real": real,
+        "basis": basis,
+        "note": ("This analysis is based on DEMO/synthetic seed data, not real "
+                 "transactions — do not present the figures as real."
+                 if basis in ("ALL_DEMO", "MIXED") else
+                 "This analysis is based on real recorded transactions."
+                 if basis == "ALL_REAL" else "No sales data yet."),
+    }
+
+
+def _full_business_analysis(db: Session) -> dict:
+    """One-shot, comprehensive business analysis: gathers KPIs, the P&L trend,
+    customer and product intelligence, ABC and data quality so the assistant can
+    synthesise insights without chaining many tool calls."""
+    prov = _data_provenance(db)
+    fin = monthly_pnl(db)
+    fin["series"] = fin["series"][-6:]  # last 6 months, compact
+    try:
+        from app.services.quant import service as qsvc
+        abc = qsvc.abc_report(db)
+        abc_summary = {"counts": abc.get("counts"), "top": abc.get("items", [])[:5]}
+    except Exception:  # noqa: BLE001 — quant is optional
+        abc_summary = None
+    return {
+        "data_provenance": prov,
+        "kpis": dashboard_summary(db),
+        "pnl_trend_6mo": fin,
+        "customers": customer_intelligence(db, top_n=5),
+        "products": product_intelligence(db),
+        "suppliers": supplier_intelligence(db),
+        "abc": abc_summary,
+        "data_quality": data_quality_report(db),
+        "guidance": ("Synthesise these into 4-6 concrete insights and prioritised "
+                     "recommendations. State the data provenance honestly."),
+    }
 
 
 def _financials(db: Session) -> dict:
@@ -449,6 +504,18 @@ def _quant_abc(db: Session) -> dict:
 # Registry.
 # --------------------------------------------------------------------------- #
 TOOLS: list[ToolDef] = [
+    ToolDef(
+        "get_full_business_analysis",
+        "COMPREHENSIVE one-call business analysis — use this for open-ended requests "
+        "like 'analyse my business', 'how am I doing', or 'give me insights'. Returns "
+        "KPIs, the 6-month P&L trend, customer and product intelligence, ABC classes, "
+        "data-quality issues, AND a data_provenance block stating whether the figures "
+        "are real or demo/synthetic. Synthesise it into insights and recommendations; "
+        "never call demo data real.",
+        {"type": "object", "properties": {}},
+        _full_business_analysis, provenance="MODEL_OUTPUT", mutating=False,
+        min_role=Role.VIEWER.value,
+    ),
     ToolDef("get_business_summary", "Headline KPIs (revenue, margins, profit, orders, customers, "
             "inventory) computed from stored transactions.", {"type": "object", "properties": {}},
             _business_summary),
