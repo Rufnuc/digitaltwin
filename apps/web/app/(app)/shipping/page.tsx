@@ -1,9 +1,16 @@
 "use client";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import { api, type LaneConditions, type ShippingStatus, type Vessel } from "@/lib/api";
 import { PageHeader } from "@/components/Shell";
 import { Card, Kpi, ProvenanceBadge } from "@/components/ui";
 import { num } from "@/lib/format";
+
+// Leaflet touches `window`, so load the map client-side only.
+const VesselMap = dynamic(() => import("@/components/VesselMap").then((m) => m.VesselMap), {
+  ssr: false,
+  loading: () => <div className="h-[380px] rounded-lg border border-line bg-wash" />,
+});
 
 export default function ShippingPage() {
   const [status, setStatus] = useState<ShippingStatus | null>(null);
@@ -11,6 +18,7 @@ export default function ShippingPage() {
   const [vessels, setVessels] = useState<Vessel[]>([]);
   const [region, setRegion] = useState("");
   const [watchOnly, setWatchOnly] = useState(false);
+  const [showMap, setShowMap] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -113,8 +121,30 @@ export default function ShippingPage() {
               />
               Nigeria watch only (declared or arrived)
             </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={showMap}
+                onChange={(e) => setShowMap(e.target.checked)}
+              />
+              Map
+            </label>
             <span className="ml-auto text-[11px] text-muted">Auto-refreshing every 15s</span>
           </div>
+
+          {showMap && (
+            <Card className="mb-4 p-0">
+              <div className="flex flex-wrap items-center gap-3 border-b border-line px-4 py-2 text-[11px] text-muted">
+                <span className="font-medium text-ink">Live positions</span>
+                <Dot c="#3b82f6" label="China origin" />
+                <Dot c="#f59e0b" label="Turkey origin" />
+                <Dot c="#22c55e" label="Declared Nigeria" />
+                <Dot c="#15803d" label="Arrived NG" />
+                <ProvenanceBadge origin="REAL" />
+              </div>
+              <VesselMap vessels={vessels} />
+            </Card>
+          )}
 
           <Card className="p-0">
             <div className="flex items-center justify-between border-b border-line px-4 py-2">
@@ -240,6 +270,15 @@ export default function ShippingPage() {
         </>
       )}
     </div>
+  );
+}
+
+function Dot({ c, label }: { c: string; label: string }) {
+  return (
+    <span className="flex items-center gap-1">
+      <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: c }} />
+      {label}
+    </span>
   );
 }
 
