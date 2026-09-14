@@ -1,6 +1,7 @@
 "use client";
 import { PageHeader } from "@/components/Shell";
 import { ResourceTable, type Column } from "@/components/DataTable";
+import { InventoryTabs } from "@/components/InventoryTabs";
 import { money2 } from "@/lib/format";
 
 type Row = Record<string, unknown>;
@@ -16,6 +17,7 @@ export default function InventoryPage() {
   return (
     <div>
       <PageHeader title="Inventory" subtitle="Current stock positions." />
+      <InventoryTabs active="levels" />
       <ResourceTable<Row> resource="inventory" columns={columns} searchable={false} />
     </div>
   );

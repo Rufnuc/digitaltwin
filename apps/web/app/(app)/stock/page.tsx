@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { PageHeader } from "@/components/Shell";
 import { Card, ProvenanceBadge } from "@/components/ui";
 import { EntityForm, type FormField } from "@/components/EntityForm";
+import { InventoryTabs } from "@/components/InventoryTabs";
 import { api, getRole, type StockLot, type StockLotDetail } from "@/lib/api";
 import { money2, num } from "@/lib/format";
 import { roleAtLeast } from "@/lib/roles";
@@ -101,6 +102,7 @@ export default function StockPage() {
         title="Stock &amp; Markers"
         subtitle="Every intake becomes a lot (marker) — scannable code, warehouse, date in, source and landed cost. Trace any marker to see who bought it and everywhere it moved."
       />
+      <InventoryTabs active="stock" />
 
       {error && <div className="mb-3 text-sm text-red-700">Error: {error}</div>}
 

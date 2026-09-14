@@ -1,6 +1,7 @@
 "use client";
 import { PageHeader } from "@/components/Shell";
 import { ResourceTable, type Column, type FilterSpec, type FormField } from "@/components/DataTable";
+import { InventoryTabs } from "@/components/InventoryTabs";
 
 type Row = Record<string, unknown>;
 
@@ -50,6 +51,7 @@ export default function WarehousesPage() {
         title="Warehouses"
         subtitle="Your storage locations. The same product can hold stock in several at once; transfers move it between them."
       />
+      <InventoryTabs active="warehouses" />
       <ResourceTable<Row>
         resource="warehouses"
         columns={columns}

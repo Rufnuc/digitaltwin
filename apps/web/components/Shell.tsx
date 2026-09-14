@@ -7,33 +7,58 @@ import { NotificationBell } from "@/components/NotificationBell";
 import { type Role, roleAtLeast } from "@/lib/roles";
 import { getStoredTheme, resolveDark, setTheme } from "@/lib/theme";
 
-// minRole gates a nav item to the user's tier (undefined = everyone).
-const NAV: { href: string; label: string; minRole?: Role }[] = [
-  { href: "/dashboard", label: "Dashboard" },
-  { href: "/analytics", label: "Analytics" },
-  { href: "/data-quality", label: "Data Quality" },
-  { href: "/imports", label: "Imports", minRole: "STAFF" },
-  { href: "/customers", label: "Customers" },
-  { href: "/products", label: "Products" },
-  { href: "/suppliers", label: "Suppliers" },
-  { href: "/invoices", label: "Invoices" },
-  { href: "/sell", label: "New Sale", minRole: "STAFF" },
-  { href: "/inventory", label: "Inventory" },
-  { href: "/warehouses", label: "Warehouses", minRole: "MANAGER" },
-  { href: "/stock", label: "Stock & Markers", minRole: "STAFF" },
-  { href: "/expenses", label: "Expenses" },
-  { href: "/simulations", label: "Simulations", minRole: "ANALYST" },
-  { href: "/documents", label: "Documents", minRole: "STAFF" },
-  { href: "/market", label: "Market Intel" },
-  { href: "/shipping", label: "Shipping" },
-  { href: "/impact", label: "News → Impact", minRole: "ANALYST" },
-  { href: "/agents", label: "Digital Twin", minRole: "ANALYST" },
-  { href: "/assistant", label: "Benfieg (AI)" },
-  { href: "/settings", label: "Settings" },
-];
+// minRole gates a nav item to the user's tier (undefined = everyone). Items are
+// grouped into labelled sections so the sidebar reads as a structured menu.
+type NavItem = { href: string; label: string; minRole?: Role };
+type NavSection = { header?: string; items: NavItem[] };
 
-// Later phases (rendered disabled). Empty now that all phases are implemented.
-const FUTURE: string[] = [];
+const NAV: NavSection[] = [
+  {
+    items: [
+      { href: "/dashboard", label: "Dashboard" },
+      { href: "/analytics", label: "Analytics" },
+      { href: "/data-quality", label: "Data Quality" },
+    ],
+  },
+  {
+    header: "Sales",
+    items: [
+      { href: "/customers", label: "Customers" },
+      // Invoices covers recording sales and the New Sale flow (via its button).
+      { href: "/invoices", label: "Invoices & Sales" },
+    ],
+  },
+  {
+    header: "Inventory",
+    items: [
+      { href: "/products", label: "Products" },
+      { href: "/suppliers", label: "Suppliers" },
+      // One entry for the whole inventory area — stock, warehouses and levels
+      // share a tab strip once inside.
+      { href: "/stock", label: "Inventory", minRole: "STAFF" },
+      { href: "/expenses", label: "Expenses" },
+    ],
+  },
+  {
+    header: "Intelligence",
+    items: [
+      { href: "/market", label: "Market Intel" },
+      { href: "/shipping", label: "Shipping" },
+      { href: "/impact", label: "News → Impact", minRole: "ANALYST" },
+      { href: "/simulations", label: "Simulations", minRole: "ANALYST" },
+      { href: "/agents", label: "Digital Twin", minRole: "ANALYST" },
+      { href: "/assistant", label: "Benfieg (AI)" },
+    ],
+  },
+  {
+    header: "Data & Settings",
+    items: [
+      { href: "/imports", label: "Imports", minRole: "STAFF" },
+      { href: "/documents", label: "Documents", minRole: "STAFF" },
+      { href: "/settings", label: "Settings" },
+    ],
+  },
+];
 
 export function Shell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -98,7 +123,11 @@ export function Shell({ children }: { children: React.ReactNode }) {
 
   if (!ready) return <div className="p-8 text-sm text-muted">Loading…</div>;
 
-  const nav = NAV.filter((item) => !item.minRole || roleAtLeast(role, item.minRole));
+  // Filter each section's items by role, then drop any section left empty.
+  const nav = NAV.map((section) => ({
+    ...section,
+    items: section.items.filter((item) => !item.minRole || roleAtLeast(role, item.minRole)),
+  })).filter((section) => section.items.length > 0);
 
   return (
     <div className="min-h-screen bg-wash">
@@ -144,35 +173,32 @@ export function Shell({ children }: { children: React.ReactNode }) {
         }`}
       >
         <nav className="flex-1 overflow-y-auto p-2">
-          {nav.map((item) => {
-            const active = pathname === item.href;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                onClick={() => {
-                  if (window.innerWidth < 768) toggle();
-                }}
-                className={`block rounded px-3 py-2 text-sm ${
-                  active ? "bg-ink text-paper" : "text-ink hover:bg-wash"
-                }`}
-              >
-                {item.label}
-              </Link>
-            );
-          })}
-          {FUTURE.length > 0 && (
-            <>
-              <div className="mt-4 px-3 text-[10px] uppercase tracking-wide text-muted">
-                Later phases
-              </div>
-              {FUTURE.map((label) => (
-                <div key={label} className="cursor-not-allowed px-3 py-2 text-sm text-line">
-                  {label}
+          {nav.map((section, si) => (
+            <div key={section.header ?? si} className={si > 0 ? "mt-3" : ""}>
+              {section.header && (
+                <div className="px-3 pb-1 pt-1 text-[10px] font-medium uppercase tracking-wider text-muted">
+                  {section.header}
                 </div>
-              ))}
-            </>
-          )}
+              )}
+              {section.items.map((item) => {
+                const active = pathname === item.href;
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    onClick={() => {
+                      if (window.innerWidth < 768) toggle();
+                    }}
+                    className={`block rounded px-3 py-2 text-sm ${
+                      active ? "bg-ink text-paper" : "text-ink hover:bg-wash"
+                    }`}
+                  >
+                    {item.label}
+                  </Link>
+                );
+              })}
+            </div>
+          ))}
         </nav>
         <div className="border-t border-line p-3 text-xs">
           <button
