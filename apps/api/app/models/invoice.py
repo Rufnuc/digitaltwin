@@ -24,6 +24,8 @@ class Invoice(Base, TimestampMixin, ProvenanceMixin):
     subtotal: Mapped[float] = mapped_column(MONEY, default=0)
     discount: Mapped[float] = mapped_column(MONEY, default=0)
     tax: Mapped[float] = mapped_column(MONEY, default=0)
+    shipping: Mapped[float] = mapped_column(MONEY, default=0)
+    shipping_note: Mapped[str | None] = mapped_column(String(255), nullable=True)
     total: Mapped[float] = mapped_column(MONEY, default=0)
 
     # Proof of record: who raised it, who last changed it, and the version count.

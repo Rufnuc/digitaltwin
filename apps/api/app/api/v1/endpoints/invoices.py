@@ -31,6 +31,8 @@ def _snapshot(inv: Invoice) -> dict:
         "subtotal": float(inv.subtotal or 0),
         "discount": float(inv.discount or 0),
         "tax": float(inv.tax or 0),
+        "shipping": float(inv.shipping or 0),
+        "shipping_note": inv.shipping_note,
         "total": float(inv.total or 0),
         "verification_status": inv.verification_status,
         "lines": [
@@ -153,13 +155,15 @@ class InvoicePatch(BaseModel):
     customer_id: int | None = None
     tax: float | None = None
     discount: float | None = None
+    shipping: float | None = None
+    shipping_note: str | None = None
     verification_status: str | None = None
     lines: list[PatchLine] | None = None
     change_note: str | None = None
 
 
 _HEADER_FIELDS = ("invoice_number", "invoice_date", "customer_id", "tax", "discount",
-                  "verification_status")
+                  "shipping", "shipping_note", "verification_status")
 
 
 @router.patch("/{invoice_id}")
@@ -194,7 +198,8 @@ def update_invoice(
             ))
         inv.subtotal = round(sum(ln.quantity * ln.unit_price for ln in payload.lines), 2)
 
-    inv.total = round(float(inv.subtotal or 0) + float(inv.tax or 0) - float(inv.discount or 0), 2)
+    inv.total = round(float(inv.subtotal or 0) + float(inv.tax or 0) + float(inv.shipping or 0)
+                     - float(inv.discount or 0), 2)
     inv.updated_by_user_id = user.id
     inv.version_no += 1
     db.flush()
@@ -296,6 +301,8 @@ class SellRequest(BaseModel):
     currency: str = "NGN"
     discount: float = 0
     tax: float = 0
+    shipping: float = 0
+    shipping_note: str | None = None
     lines: list[SellLine] = Field(min_length=1)
 
 
@@ -308,12 +315,13 @@ def sell(
     """Create an invoice and fulfil it from a warehouse's stock, decrementing lots
     (FIFO) and tagging each movement with the buyer."""
     subtotal = round(sum(ln.quantity * ln.unit_price for ln in payload.lines), 2)
-    total = round(subtotal + payload.tax - payload.discount, 2)
+    total = round(subtotal + payload.tax + payload.shipping - payload.discount, 2)
 
     invoice = Invoice(
         invoice_number=payload.invoice_number, invoice_date=payload.invoice_date,
         customer_id=payload.customer_id, currency=payload.currency,
-        subtotal=subtotal, discount=payload.discount, tax=payload.tax, total=total,
+        subtotal=subtotal, discount=payload.discount, tax=payload.tax,
+        shipping=payload.shipping, shipping_note=payload.shipping_note, total=total,
         verification_status=VerificationStatus.VERIFIED.value,
         created_by_user_id=user.id, version_no=1,
     )

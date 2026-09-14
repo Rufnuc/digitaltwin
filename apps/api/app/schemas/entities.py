@@ -296,5 +296,7 @@ class InvoiceOut(ProvenanceOut, TimestampsOut):
     subtotal: float
     discount: float
     tax: float
+    shipping: float = 0
+    shipping_note: str | None = None
     total: float
     lines: list[InvoiceLineOut] = []

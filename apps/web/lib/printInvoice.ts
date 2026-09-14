@@ -104,6 +104,7 @@ export async function printInvoice(inv: InvoiceDetail, versions: InvoiceVersionR
     <table class="totals">
       <tr><td>Subtotal</td><td class="r">${naira(inv.subtotal)}</td></tr>
       <tr><td>Tax</td><td class="r">${naira(inv.tax)}</td></tr>
+      ${inv.shipping ? `<tr><td>Shipping${inv.shipping_note ? ` (${esc(inv.shipping_note)})` : ""}</td><td class="r">${naira(inv.shipping)}</td></tr>` : ""}
       <tr><td>Discount</td><td class="r">-${naira(inv.discount)}</td></tr>
       <tr class="grand"><td>Total</td><td class="r">${naira(inv.total)}</td></tr>
     </table>

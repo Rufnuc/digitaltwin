@@ -253,6 +253,7 @@ function InvoiceDrawer({
               <F label="Date" value={inv.invoice_date} />
               <F label="Subtotal" value={money2(inv.subtotal)} />
               <F label="Tax" value={money2(inv.tax)} />
+              <F label={inv.shipping_note ? `Shipping (${inv.shipping_note})` : "Shipping"} value={money2(inv.shipping)} />
               <F label="Discount" value={money2(inv.discount)} />
               <F label="Total" value={money2(inv.total)} />
               <F label="Verification" value={inv.verification_status} />
@@ -382,6 +383,8 @@ function InvoiceEditModal({
   const [date, setDate] = useState(inv.invoice_date);
   const [tax, setTax] = useState(String(inv.tax));
   const [discount, setDiscount] = useState(String(inv.discount));
+  const [shipping, setShipping] = useState(String(inv.shipping));
+  const [shippingNote, setShippingNote] = useState(inv.shipping_note ?? "");
   const [statusVal, setStatusVal] = useState(inv.verification_status);
   const [note, setNote] = useState("");
   const [lines, setLines] = useState<EditLine[]>(
@@ -406,7 +409,7 @@ function InvoiceEditModal({
     setLines((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)));
   }
   const subtotal = lines.reduce((s, l) => s + (Number(l.quantity) || 0) * (Number(l.unit_price) || 0), 0);
-  const total = subtotal + (Number(tax) || 0) - (Number(discount) || 0);
+  const total = subtotal + (Number(tax) || 0) + (Number(shipping) || 0) - (Number(discount) || 0);
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -419,6 +422,8 @@ function InvoiceEditModal({
         verification_status: statusVal,
         tax: Number(tax) || 0,
         discount: Number(discount) || 0,
+        shipping: Number(shipping) || 0,
+        shipping_note: shippingNote || null,
         change_note: note || "edited",
         lines: lines
           .filter((l) => l.description.trim() || l.product_id)
@@ -487,14 +492,22 @@ function InvoiceEditModal({
         </div>
         <button type="button" onClick={() => setLines((ls) => [...ls, { key: Date.now(), product_id: "", description: "", quantity: "1", unit_price: "" }])} className="mt-2 text-xs text-muted underline decoration-dotted">+ Add line</button>
 
-        <div className="mt-3 grid grid-cols-2 gap-3 sm:max-w-md">
+        <div className="mt-3 grid grid-cols-3 gap-3 sm:max-w-lg">
           <label className="text-xs text-muted">Tax (₦)
             <input type="number" step="0.01" value={tax} onChange={(e) => setTax(e.target.value)} className={inp} />
           </label>
           <label className="text-xs text-muted">Discount (₦)
             <input type="number" step="0.01" value={discount} onChange={(e) => setDiscount(e.target.value)} className={inp} />
           </label>
+          <label className="text-xs text-muted">Shipping (₦)
+            <input type="number" step="0.01" value={shipping} onChange={(e) => setShipping(e.target.value)} className={inp} />
+          </label>
         </div>
+        {(Number(shipping) || 0) > 0 && (
+          <label className="mt-2 block text-xs text-muted">Shipping is for
+            <input value={shippingNote} onChange={(e) => setShippingNote(e.target.value)} placeholder="e.g. delivery, courier" className={inp} />
+          </label>
+        )}
         <div className="mt-2 text-right text-sm font-semibold">Total: {money2(total)}</div>
 
         <label className="mt-3 block text-xs text-muted">Reason for change
@@ -525,6 +538,7 @@ function VersionModal({
 }) {
   const s = version.snapshot as {
     total?: number; subtotal?: number; tax?: number; discount?: number;
+    shipping?: number; shipping_note?: string | null;
     verification_status?: string; invoice_date?: string;
     lines?: { description?: string | null; quantity?: number; unit_price?: number; line_total?: number }[];
   };
@@ -545,6 +559,7 @@ function VersionModal({
           <F label="Verification" value={s.verification_status ?? "—"} />
           <F label="Subtotal" value={money2(s.subtotal ?? 0)} />
           <F label="Tax" value={money2(s.tax ?? 0)} />
+          <F label={s.shipping_note ? `Shipping (${s.shipping_note})` : "Shipping"} value={money2(s.shipping ?? 0)} />
           <F label="Discount" value={money2(s.discount ?? 0)} />
           <F label="Total" value={money2(s.total ?? 0)} />
         </div>

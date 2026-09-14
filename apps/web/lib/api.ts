@@ -470,6 +470,8 @@ export interface InvoiceDetail {
   subtotal: number;
   discount: number;
   tax: number;
+  shipping: number;
+  shipping_note: string | null;
   total: number;
   verification_status: string;
   created_by: string | null;

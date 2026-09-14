@@ -44,6 +44,10 @@ export default function SellPage() {
   const [lines, setLines] = useState<Line[]>([{ key: 1, product_id: "", quantity: "1", unit_price: "" }]);
   const [tax, setTax] = useState("0");
   const [discount, setDiscount] = useState("0");
+  const [shipping, setShipping] = useState("0");
+  const [shippingNote, setShippingNote] = useState("");
+  const [posName, setPosName] = useState("");
+  const [addingPos, setAddingPos] = useState(false);
 
   // available[productId][warehouseId] = qty on hand
   const [available, setAvailable] = useState<Record<number, Record<number, number>>>({});
@@ -101,7 +105,7 @@ export default function SellPage() {
     (s, l) => s + (Number(l.quantity) || 0) * (Number(l.unit_price) || 0),
     0,
   );
-  const total = subtotal + (Number(tax) || 0) - (Number(discount) || 0);
+  const total = subtotal + (Number(tax) || 0) + (Number(shipping) || 0) - (Number(discount) || 0);
 
   // Validation: every line needs a product + qty, and qty must be in stock.
   const problems: string[] = [];
@@ -145,6 +149,8 @@ export default function SellPage() {
         currency: "NGN",
         tax: Number(tax) || 0,
         discount: Number(discount) || 0,
+        shipping: Number(shipping) || 0,
+        shipping_note: shippingNote || null,
         lines: validLines.map((l) => ({
           product_id: Number(l.product_id),
           quantity: Number(l.quantity),
@@ -261,12 +267,50 @@ export default function SellPage() {
                 </select>
               </Labelled>
             </div>
-            {shops.length === 0 && (
-              <div className="mt-2 text-[11px] text-muted">
-                Tip: mark your Home and Office as “Point of sale” locations under Inventory →
-                Warehouses, then transfer stock to them to sell.
-              </div>
-            )}
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-muted">
+              <span>Sale locations are Home / Office (points of sale).</span>
+              {!addingPos ? (
+                <button
+                  type="button"
+                  onClick={() => setAddingPos(true)}
+                  className="text-ink underline decoration-dotted"
+                >
+                  + Add a sale location
+                </button>
+              ) : (
+                <span className="flex items-center gap-1">
+                  <input
+                    value={posName}
+                    onChange={(e) => setPosName(e.target.value)}
+                    placeholder="Home / Office / Shop name"
+                    className="rounded border border-line bg-paper px-2 py-1 text-xs"
+                  />
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const nm = posName.trim();
+                      if (!nm) return;
+                      const code = "POS-" + nm.replace(/\s+/g, "").slice(0, 8).toUpperCase();
+                      const w = await api.createResource<Ref>("warehouses", {
+                        code,
+                        name: nm,
+                        type: "shop",
+                      });
+                      setWarehouses((ws) => [...ws, { ...w, type: "shop" }]);
+                      setWarehouseId(String(w.id));
+                      setPosName("");
+                      setAddingPos(false);
+                    }}
+                    className="rounded bg-ink px-2 py-1 text-xs text-paper"
+                  >
+                    Add
+                  </button>
+                  <button type="button" onClick={() => setAddingPos(false)} className="px-1">
+                    ✕
+                  </button>
+                </span>
+              )}
+            </div>
             {selectedCustomer && (
               <div className="mt-2 text-[11px] text-muted">
                 {selectedCustomer.customer_type ?? ""}
@@ -358,17 +402,35 @@ export default function SellPage() {
           </Card>
 
           <Card className="p-4">
-            <div className="grid grid-cols-2 gap-3 sm:max-w-sm">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
               <Labelled label="Tax (₦)">
                 <input type="number" step="0.01" value={tax} onChange={(e) => setTax(e.target.value)} className={inp} />
               </Labelled>
               <Labelled label="Discount (₦)">
                 <input type="number" step="0.01" value={discount} onChange={(e) => setDiscount(e.target.value)} className={inp} />
               </Labelled>
+              <Labelled label="Shipping (₦)">
+                <input type="number" step="0.01" value={shipping} onChange={(e) => setShipping(e.target.value)} className={inp} />
+              </Labelled>
             </div>
-            <div className="mt-3 space-y-1 text-sm">
+            {(Number(shipping) || 0) > 0 && (
+              <div className="mt-2">
+                <Labelled label="What is the shipping for?">
+                  <input
+                    value={shippingNote}
+                    onChange={(e) => setShippingNote(e.target.value)}
+                    placeholder="e.g. delivery to customer, courier, haulage"
+                    className={inp}
+                  />
+                </Labelled>
+              </div>
+            )}
+            <div className="mt-3 space-y-1 text-sm sm:max-w-sm">
               <Row label="Subtotal" value={money2(subtotal)} />
               <Row label="Tax" value={money2(Number(tax) || 0)} />
+              {(Number(shipping) || 0) > 0 && (
+                <Row label={`Shipping${shippingNote ? ` (${shippingNote})` : ""}`} value={money2(Number(shipping) || 0)} />
+              )}
               <Row label="Discount" value={`- ${money2(Number(discount) || 0)}`} />
               <div className="flex justify-between border-t border-line pt-1 text-base font-semibold">
                 <span>Total</span>
