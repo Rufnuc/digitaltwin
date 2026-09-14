@@ -382,6 +382,70 @@ def _compare_agent_strategies(db: Session, strategies: list | None = None,
 
 
 # --------------------------------------------------------------------------- #
+# Quant module tools (deterministic forecasting / reorder / ABC).
+# --------------------------------------------------------------------------- #
+def _resolve_product_id(db: Session, product_id=None, product=None) -> int | None:
+    if product_id is not None:
+        try:
+            return int(product_id)
+        except (TypeError, ValueError):
+            return None
+    if product:
+        row = db.scalar(
+            select(Product).where(
+                or_(Product.code == str(product), Product.name.ilike(f"%{product}%"))
+            )
+        )
+        return row.id if row else None
+    return None
+
+
+def _quant_forecast(db: Session, product_id=None, product=None, horizon_periods: int = 12) -> dict:
+    from app.services.quant import service as qsvc
+
+    pid = _resolve_product_id(db, product_id, product)
+    if pid is None:
+        return {"error": "product not found; give a product id, code or name"}
+    r = qsvc.product_forecast(db, pid, horizon=int(horizon_periods))
+    f = r.get("forecast", {})
+    return {
+        "product": r.get("product_name"), "code": r.get("product_code"),
+        "status": r.get("status"), "pattern": r.get("classification", {}).get("pattern"),
+        "model": f.get("model_name"), "point_per_week": f.get("point_values", [None])[0],
+        "quantiles_week1": {k: v[0] for k, v in f.get("quantiles", {}).items()},
+        "weeks_observed": r.get("demand", {}).get("weeks_observed"),
+    }
+
+
+def _quant_reorder(db: Session, product_id=None, product=None, service_level: float = 0.95) -> dict:
+    from app.services.quant import service as qsvc
+
+    pid = _resolve_product_id(db, product_id, product)
+    if pid is None:
+        return {"error": "product not found; give a product id, code or name"}
+    r = qsvc.product_reorder(db, pid, service_level=float(service_level))
+    if r.get("status") != "OK":
+        return {"product": r.get("product_name"), "status": r.get("status"),
+                "missing_fields": r.get("missing_fields")}
+    rec = r["recommendation"]
+    return {
+        "product": r.get("product_name"), "pattern": r.get("pattern"),
+        "recommended_order_quantity": rec["recommended_order_quantity"],
+        "safety_stock": rec["safety_stock"], "order_up_to_level": rec["order_up_to_level"],
+        "protection_horizon_days": rec["protection_horizon_days"],
+        "recommendation_status": rec["recommendation_status"], "warnings": rec["warnings"],
+    }
+
+
+def _quant_abc(db: Session) -> dict:
+    from app.services.quant import service as qsvc
+
+    r = qsvc.abc_report(db)
+    return {"counts": r.get("counts"), "total_value": r.get("total_value"),
+            "top": r.get("items", [])[:15], "new_products": r.get("new_products", [])[:10]}
+
+
+# --------------------------------------------------------------------------- #
 # Registry.
 # --------------------------------------------------------------------------- #
 TOOLS: list[ToolDef] = [
@@ -583,6 +647,37 @@ TOOLS: list[ToolDef] = [
         }, "required": ["strategies"]},
         _compare_agent_strategies, provenance="FORECAST", mutating=False,
         min_role=Role.VIEWER.value,
+    ),
+    ToolDef(
+        "get_demand_forecast",
+        "Deterministic demand forecast for one product: its demand pattern "
+        "(smooth/intermittent/lumpy), the fitted model, and a predictive distribution "
+        "(expected weekly demand plus p05..p95). Identify the product by id, code, or name.",
+        {"type": "object", "properties": {
+            "product_id": {"type": ["integer", "string"]},
+            "product": {"type": "string", "description": "product code or name"},
+            "horizon_periods": {"type": "integer", "minimum": 1, "maximum": 52},
+        }},
+        _quant_forecast, provenance="FORECAST", mutating=False, min_role=Role.VIEWER.value,
+    ),
+    ToolDef(
+        "get_reorder_recommendation",
+        "Reorder policy for one product: safety stock, order-up-to level, protection "
+        "horizon and the recommended order quantity, with a forecast-quality gate. "
+        "Identify the product by id, code, or name; optional service_level (0.5-0.999).",
+        {"type": "object", "properties": {
+            "product_id": {"type": ["integer", "string"]},
+            "product": {"type": "string"},
+            "service_level": {"type": "number", "minimum": 0.5, "maximum": 0.999},
+        }},
+        _quant_reorder, provenance="MODEL_OUTPUT", mutating=False, min_role=Role.VIEWER.value,
+    ),
+    ToolDef(
+        "get_abc_classification",
+        "ABC classification of the catalogue by annualised demand value (class A/B/C), "
+        "with short-history products held out in a separate low-evidence section.",
+        {"type": "object", "properties": {}},
+        _quant_abc, provenance="MODEL_OUTPUT", mutating=False, min_role=Role.VIEWER.value,
     ),
 ]
 
