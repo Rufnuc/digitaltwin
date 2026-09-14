@@ -43,6 +43,58 @@ def test_dedupe_window_zero_allows_duplicate(db):
     assert a is not None and b is None and c is not None
 
 
+def test_supersede_keeps_one_row_per_category(db):
+    from sqlalchemy import func, select
+
+    from app.models.system import Notification
+
+    seed(db)
+
+    def count(cat: str) -> int:
+        return int(db.scalar(
+            select(func.count()).select_from(Notification).where(Notification.category == cat)
+        ) or 0)
+
+    # Simulate historical pile-up: several rows queued the old way (window 0).
+    for i in range(4):
+        notifications.notify(db, category="market_impact", title=f"{i} alerts", dedupe_hours=0)
+    assert count("market_impact") == 4
+
+    # A superseding write collapses them to exactly one, updated in place.
+    kept = notifications.notify(
+        db, category="market_impact", title="5 alerts", supersede=True,
+    )
+    assert kept is not None and count("market_impact") == 1
+    assert kept.title == "5 alerts" and kept.is_read is False
+
+    # Re-running with the SAME content changes nothing and does not re-alert.
+    kept.is_read = True
+    db.commit()
+    again = notifications.notify(
+        db, category="market_impact", title="5 alerts", supersede=True,
+    )
+    assert again is None and count("market_impact") == 1
+    # Still read — an unchanged standing condition must not spam the bell.
+    assert notifications.list_notifications(db)[0]["is_read"] is True
+
+
+def test_generate_twice_does_not_pile_up(db):
+    from sqlalchemy import func, select
+
+    from app.models.system import Notification
+
+    seed(db)
+    notifications.generate(db)
+    notifications.generate(db)
+    notifications.generate(db)
+    # Every category must have at most one live notification after repeated scans.
+    rows = db.execute(
+        select(Notification.category, func.count()).group_by(Notification.category)
+    ).all()
+    assert rows, "demo data should produce at least one notification"
+    assert all(n == 1 for _, n in rows), dict(rows)
+
+
 def test_notifications_api(client, auth_headers, db):
     seed(db)
     gen = client.post("/api/v1/notifications/generate", headers=auth_headers("VIEWER"))

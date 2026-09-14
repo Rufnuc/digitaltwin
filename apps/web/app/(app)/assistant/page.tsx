@@ -1,6 +1,11 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
-import { api, type AssistantResponse } from "@/lib/api";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  api,
+  type AssistantResponse,
+  type ConversationDetail,
+  type ConversationSummary,
+} from "@/lib/api";
 import { PageHeader } from "@/components/Shell";
 import { Card, ProvenanceBadge } from "@/components/ui";
 import { MicRecorder } from "@/lib/recorder";
@@ -27,6 +32,39 @@ const SUGGESTIONS = [
   "Save a simulation raising prices 10%",
 ];
 
+// Rebuild the on-screen turns from a stored conversation. Messages alternate
+// user → assistant; each user message plus its following assistant message is
+// one turn, rendered exactly as it was live (answer + tool trace + provenance).
+function toTurns(detail: ConversationDetail): Turn[] {
+  const turns: Turn[] = [];
+  const msgs = detail.messages;
+  for (let i = 0; i < msgs.length; i++) {
+    if (msgs[i].role !== "user") continue;
+    const q = msgs[i].content;
+    const a = msgs[i + 1]?.role === "assistant" ? msgs[i + 1] : null;
+    if (a) {
+      const m = a.meta ?? {};
+      turns.push({
+        question: q,
+        response: {
+          question: q,
+          answer: a.content,
+          provider: m.provider ?? "",
+          model: m.model ?? null,
+          provenance: m.provenance ?? "AI_INTERPRETATION",
+          tool_calls: m.tool_calls ?? [],
+          actions_taken: m.actions_taken ?? [],
+          disclaimer: m.disclaimer ?? "",
+        },
+      });
+      i++; // consumed the assistant message
+    } else {
+      turns.push({ question: q, error: "No saved answer." });
+    }
+  }
+  return turns;
+}
+
 export default function AssistantPage() {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [input, setInput] = useState("");
@@ -34,13 +72,61 @@ export default function AssistantPage() {
   const [recording, setRecording] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
   const [voiceError, setVoiceError] = useState<string | null>(null);
+  const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+  const [activeId, setActiveId] = useState<number | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const recorderRef = useRef<MicRecorder | null>(null);
 
+  const loadConversations = useCallback(async () => {
+    try {
+      const r = await api.listConversations();
+      setConversations(r.items);
+    } catch {
+      /* ignore — history is a convenience, not critical to asking */
+    }
+  }, []);
+
+  useEffect(() => {
+    loadConversations();
+  }, [loadConversations]);
+
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [turns]);
+
+  function newChat() {
+    stop();
+    setTurns([]);
+    setActiveId(null);
+    setInput("");
+    setHistoryOpen(false);
+  }
+
+  async function openChat(id: number) {
+    stop();
+    setHistoryOpen(false);
+    try {
+      const detail = await api.getConversation(id);
+      setActiveId(detail.id);
+      setTurns(toTurns(detail));
+    } catch {
+      setVoiceError("Could not open that chat.");
+    }
+  }
+
+  async function removeChat(id: number, e: React.MouseEvent) {
+    e.stopPropagation();
+    if (!window.confirm("Delete this chat? This cannot be undone.")) return;
+    try {
+      await api.deleteConversation(id);
+      setConversations((cs) => cs.filter((c) => c.id !== id));
+      if (activeId === id) newChat();
+    } catch {
+      /* ignore */
+    }
+  }
 
   // Stop a request in flight: abort the fetch and drop the pending turn.
   function stop() {
@@ -63,8 +149,12 @@ export default function AssistantPage() {
     const ctrl = new AbortController();
     abortRef.current = ctrl;
     try {
-      const response = await api.assistantAsk(q, ctrl.signal);
+      const response = await api.assistantAsk(q, activeId ?? undefined, ctrl.signal);
       setTurns((t) => t.map((x, i) => (i === t.length - 1 ? { question: q, response } : x)));
+      // Adopt the conversation the server saved this turn into, then refresh
+      // the list so a new chat appears (and existing ones re-sort to the top).
+      if (response.conversation_id != null) setActiveId(response.conversation_id);
+      loadConversations();
     } catch (e) {
       if (ctrl.signal.aborted) return; // stop() already handled the UI
       const error = e instanceof Error ? e.message : "Request failed";
@@ -107,99 +197,165 @@ export default function AssistantPage() {
     }
   }
 
+  const historyPanel = (
+    <div className="flex h-full flex-col">
+      <button
+        onClick={newChat}
+        className="mb-2 w-full rounded bg-ink px-3 py-2 text-sm font-medium text-paper"
+      >
+        + New chat
+      </button>
+      <div className="flex-1 overflow-y-auto">
+        {conversations.length === 0 && (
+          <div className="px-1 py-2 text-xs text-muted">No past chats yet.</div>
+        )}
+        {conversations.map((c) => (
+          <div
+            key={c.id}
+            onClick={() => openChat(c.id)}
+            className={`group mb-1 flex cursor-pointer items-center gap-1 rounded px-2 py-1.5 text-sm ${
+              activeId === c.id ? "bg-ink text-paper" : "hover:bg-wash"
+            }`}
+          >
+            <span className="min-w-0 flex-1 truncate" title={c.title}>
+              {c.title}
+            </span>
+            <button
+              onClick={(e) => removeChat(c.id, e)}
+              title="Delete chat"
+              aria-label="Delete chat"
+              className={`shrink-0 rounded px-1 text-xs opacity-0 group-hover:opacity-100 ${
+                activeId === c.id ? "text-paper hover:bg-white/20" : "text-muted hover:bg-line"
+              }`}
+            >
+              ✕
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
   return (
     <div>
       <PageHeader
         title="Benfieg"
-        subtitle="Your AI business analyst. Ask in plain language — or tell it to make changes. It calls the business-data and simulation tools for every number (never invents figures) and can create/update records, refresh data, and run simulations, within your permissions."
+        subtitle="Your AI business analyst. Ask in plain language — or tell it to make changes. It calls the business-data and simulation tools for every number (never invents figures) and can create/update records, refresh data, and run simulations, within your permissions. Your chats are saved on the left."
       />
 
-      {turns.length === 0 && (
-        <Card className="mb-4 p-4">
-          <div className="mb-2 text-sm font-medium">Try asking</div>
-          <div className="flex flex-wrap gap-2">
-            {SUGGESTIONS.map((s) => (
-              <button
-                key={s}
-                onClick={() => send(s)}
-                className="rounded-full border border-line px-3 py-1.5 text-sm hover:bg-wash"
-              >
-                {s}
-              </button>
-            ))}
-          </div>
-        </Card>
-      )}
+      <div className="flex gap-4">
+        {/* History sidebar — persistent on desktop */}
+        <aside className="hidden w-56 shrink-0 md:block">{historyPanel}</aside>
 
-      <div className="space-y-4">
-        {turns.map((t, i) => (
-          <div key={i}>
-            <div className="mb-2 flex justify-end">
-              <div className="max-w-[80%] rounded-lg bg-ink px-3 py-2 text-sm text-paper">
-                {t.question}
-              </div>
-            </div>
-            {t.pending && <div className="text-sm text-muted">Thinking…</div>}
-            {t.error && <div className="text-sm text-red-700">Error: {t.error}</div>}
-            {t.response && <AnswerCard r={t.response} />}
+        {/* Chat column */}
+        <div className="min-w-0 flex-1">
+          {/* Mobile: history toggle */}
+          <div className="mb-2 flex items-center gap-2 md:hidden">
+            <button
+              onClick={() => setHistoryOpen((v) => !v)}
+              className="rounded border border-line px-3 py-1.5 text-sm hover:bg-wash"
+            >
+              {historyOpen ? "Hide history" : "History"}
+            </button>
+            <button
+              onClick={newChat}
+              className="rounded bg-ink px-3 py-1.5 text-sm font-medium text-paper"
+            >
+              + New chat
+            </button>
           </div>
-        ))}
-        <div ref={endRef} />
-      </div>
-
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          send(input);
-        }}
-        className="sticky bottom-0 mt-4 bg-wash py-2"
-      >
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={toggleMic}
-            disabled={busy || transcribing}
-            title={recording ? "Stop recording" : "Speak your question"}
-            aria-label={recording ? "Stop recording" : "Speak your question"}
-            className={`flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded border text-base disabled:opacity-40 ${
-              recording
-                ? "animate-pulse border-red-500 bg-red-500/15 text-red-600"
-                : "border-line hover:bg-paper"
-            }`}
-          >
-            {transcribing ? "…" : recording ? "⏹" : "🎤"}
-          </button>
-          <input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder={
-              recording
-                ? "Listening… tap the square to stop"
-                : transcribing
-                  ? "Transcribing your voice…"
-                  : "Ask about your business, or a what-if scenario…"
-            }
-            className="flex-1 rounded border border-line px-3 py-2 text-sm outline-none focus:border-ink"
-          />
-          {busy ? (
-            <button
-              type="button"
-              onClick={stop}
-              className="rounded border border-red-500 bg-red-500/15 px-4 py-2 text-sm font-medium text-red-600"
-            >
-              Stop
-            </button>
-          ) : (
-            <button
-              disabled={!input.trim()}
-              className="rounded bg-ink px-4 py-2 text-sm font-medium text-paper disabled:opacity-40"
-            >
-              Send
-            </button>
+          {historyOpen && (
+            <Card className="mb-3 max-h-72 p-2 md:hidden">{historyPanel}</Card>
           )}
+
+          {turns.length === 0 && (
+            <Card className="mb-4 p-4">
+              <div className="mb-2 text-sm font-medium">Try asking</div>
+              <div className="flex flex-wrap gap-2">
+                {SUGGESTIONS.map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => send(s)}
+                    className="rounded-full border border-line px-3 py-1.5 text-sm hover:bg-wash"
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            </Card>
+          )}
+
+          <div className="space-y-4">
+            {turns.map((t, i) => (
+              <div key={i}>
+                <div className="mb-2 flex justify-end">
+                  <div className="max-w-[80%] rounded-lg bg-ink px-3 py-2 text-sm text-paper">
+                    {t.question}
+                  </div>
+                </div>
+                {t.pending && <div className="text-sm text-muted">Thinking…</div>}
+                {t.error && <div className="text-sm text-red-700">Error: {t.error}</div>}
+                {t.response && <AnswerCard r={t.response} />}
+              </div>
+            ))}
+            <div ref={endRef} />
+          </div>
+
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              send(input);
+            }}
+            className="sticky bottom-0 mt-4 bg-wash py-2"
+          >
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={toggleMic}
+                disabled={busy || transcribing}
+                title={recording ? "Stop recording" : "Speak your question"}
+                aria-label={recording ? "Stop recording" : "Speak your question"}
+                className={`flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded border text-base disabled:opacity-40 ${
+                  recording
+                    ? "animate-pulse border-red-500 bg-red-500/15 text-red-600"
+                    : "border-line hover:bg-paper"
+                }`}
+              >
+                {transcribing ? "…" : recording ? "⏹" : "🎤"}
+              </button>
+              <input
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder={
+                  recording
+                    ? "Listening… tap the square to stop"
+                    : transcribing
+                      ? "Transcribing your voice…"
+                      : "Ask about your business, or a what-if scenario…"
+                }
+                className="flex-1 rounded border border-line px-3 py-2 text-sm outline-none focus:border-ink"
+              />
+              {busy ? (
+                <button
+                  type="button"
+                  onClick={stop}
+                  className="rounded border border-red-500 bg-red-500/15 px-4 py-2 text-sm font-medium text-red-600"
+                >
+                  Stop
+                </button>
+              ) : (
+                <button
+                  disabled={!input.trim()}
+                  className="rounded bg-ink px-4 py-2 text-sm font-medium text-paper disabled:opacity-40"
+                >
+                  Send
+                </button>
+              )}
+            </div>
+            {voiceError && <div className="mt-1 text-xs text-red-700">{voiceError}</div>}
+          </form>
         </div>
-        {voiceError && <div className="mt-1 text-xs text-red-700">{voiceError}</div>}
-      </form>
+      </div>
     </div>
   );
 }

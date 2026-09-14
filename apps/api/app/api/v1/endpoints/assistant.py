@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import db_session, get_current_user
 from app.models.user import User
+from app.services.ai import history
 from app.services.ai.assistant import ask
 from app.services.ai.tools import tool_catalog
 from app.services.ai.transcribe import TranscriptionUnavailable, transcribe_wav
@@ -18,6 +19,12 @@ router = APIRouter(tags=["assistant"])
 
 class AssistantAsk(BaseModel):
     question: str = Field(min_length=1, max_length=1000)
+    # Continue an existing chat, or omit/null to start a new one.
+    conversation_id: int | None = None
+
+
+class RenameChat(BaseModel):
+    title: str = Field(min_length=1, max_length=255)
 
 
 @router.get("/assistant/tools")
@@ -32,7 +39,62 @@ def assistant_ask(
     db: Session = Depends(db_session),
     user: User = Depends(get_current_user),
 ) -> dict:
-    return ask(db, payload.question, user=user)
+    result = ask(db, payload.question, user=user)
+    # Persist the turn as chat history (per user), continuing or starting a chat.
+    convo = history.save_turn(
+        db,
+        user_id=user.id if user else None,
+        conversation_id=payload.conversation_id,
+        response=result,
+    )
+    result["conversation_id"] = convo.id
+    result["conversation_title"] = convo.title
+    return result
+
+
+@router.get("/assistant/conversations")
+def list_conversations(
+    db: Session = Depends(db_session),
+    user: User = Depends(get_current_user),
+) -> dict:
+    return {"items": history.list_conversations(db, user.id if user else None)}
+
+
+@router.get("/assistant/conversations/{conversation_id}")
+def get_conversation(
+    conversation_id: int,
+    db: Session = Depends(db_session),
+    user: User = Depends(get_current_user),
+) -> dict:
+    convo = history.get_conversation(db, user.id if user else None, conversation_id)
+    if convo is None:
+        raise HTTPException(status_code=404, detail="Conversation not found.")
+    return convo
+
+
+@router.patch("/assistant/conversations/{conversation_id}")
+def rename_conversation(
+    conversation_id: int,
+    payload: RenameChat,
+    db: Session = Depends(db_session),
+    user: User = Depends(get_current_user),
+) -> dict:
+    if not history.rename_conversation(
+        db, user.id if user else None, conversation_id, payload.title
+    ):
+        raise HTTPException(status_code=404, detail="Conversation not found.")
+    return {"ok": True}
+
+
+@router.delete("/assistant/conversations/{conversation_id}")
+def delete_conversation(
+    conversation_id: int,
+    db: Session = Depends(db_session),
+    user: User = Depends(get_current_user),
+) -> dict:
+    if not history.delete_conversation(db, user.id if user else None, conversation_id):
+        raise HTTPException(status_code=404, detail="Conversation not found.")
+    return {"ok": True}
 
 
 @router.post("/assistant/transcribe")

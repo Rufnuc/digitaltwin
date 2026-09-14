@@ -201,13 +201,25 @@ export const api = {
     }),
 
   // ---- Phase 4: AI assistant ----
-  assistantAsk: (question: string, signal?: AbortSignal) =>
+  assistantAsk: (question: string, conversationId?: number, signal?: AbortSignal) =>
     request<AssistantResponse>("/assistant/ask", {
       method: "POST",
-      body: JSON.stringify({ question }),
+      body: JSON.stringify({ question, conversation_id: conversationId ?? null }),
       signal,
     }),
   assistantTools: () => request<{ tools: AssistantTool[] }>("/assistant/tools"),
+  // Benfieg chat history (per user).
+  listConversations: () =>
+    request<{ items: ConversationSummary[] }>("/assistant/conversations"),
+  getConversation: (id: number) =>
+    request<ConversationDetail>(`/assistant/conversations/${id}`),
+  renameConversation: (id: number, title: string) =>
+    request<{ ok: boolean }>(`/assistant/conversations/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ title }),
+    }),
+  deleteConversation: (id: number) =>
+    request<{ ok: boolean }>(`/assistant/conversations/${id}`, { method: "DELETE" }),
   // Local, offline Whisper transcription of recorded mic audio (16 kHz mono WAV).
   assistantTranscribe: async (
     wav: Blob,
@@ -737,6 +749,36 @@ export interface AssistantResponse {
   tool_calls: AssistantToolCall[];
   actions_taken: string[];
   disclaimer: string;
+  conversation_id?: number;
+  conversation_title?: string;
+}
+export interface ConversationSummary {
+  id: number;
+  title: string;
+  message_count: number;
+  created_at: string;
+  updated_at: string;
+}
+export interface ConversationMessage {
+  id: number;
+  role: "user" | "assistant";
+  content: string;
+  meta: {
+    provider?: string;
+    model?: string | null;
+    provenance?: string;
+    tool_calls?: AssistantToolCall[];
+    actions_taken?: string[];
+    disclaimer?: string;
+  } | null;
+  created_at: string;
+}
+export interface ConversationDetail {
+  id: number;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  messages: ConversationMessage[];
 }
 export interface AssistantTool {
   name: string;

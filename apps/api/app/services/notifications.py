@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.models.extraction import ExtractedInvoice
@@ -24,10 +24,49 @@ _DEDUPE_HOURS = 6
 def notify(
     db: Session, *, category: str, title: str, body: str | None = None,
     severity: str = "info", link: str | None = None, dedupe_hours: int = _DEDUPE_HOURS,
-    commit: bool = True,
+    supersede: bool = False, commit: bool = True,
 ) -> Notification | None:
-    """Create a notification unless one of the same category is recent (dedupe)."""
-    if dedupe_hours:
+    """Create a notification, avoiding pile-up of the same category.
+
+    supersede=True (for standing-condition alerts like low stock or market impact):
+    keep exactly ONE notification per category. The latest is updated in place and
+    any older duplicates of that category are removed, so the same condition never
+    stacks up across scans. It only re-alerts (resets is_read + created_at) when the
+    message actually changes; an unchanged condition returns None (no new alert).
+
+    supersede=False: legacy time-window dedupe — skip if one of the same category
+    was created within `dedupe_hours`.
+    """
+    if supersede:
+        rows = list(db.scalars(
+            select(Notification)
+            .where(Notification.category == category)
+            .order_by(Notification.created_at.desc())
+        ).all())
+        keep = rows[0] if rows else None
+        # Collapse any historical duplicates of this category down to one row.
+        if len(rows) > 1:
+            db.execute(
+                delete(Notification).where(
+                    Notification.category == category, Notification.id != keep.id
+                )
+            )
+        if keep is not None:
+            changed = (
+                keep.title != title or keep.body != body
+                or keep.severity != severity or keep.link != link
+            )
+            if changed:
+                keep.title, keep.body = title, body
+                keep.severity, keep.link = severity, link
+                keep.is_read = False
+                keep.created_at = datetime.now(timezone.utc)
+            if commit:
+                db.commit()
+                db.refresh(keep)
+            return keep if changed else None
+        # No existing row — fall through and create one.
+    elif dedupe_hours:
         cutoff = datetime.now(timezone.utc) - timedelta(hours=dedupe_hours)
         exists = db.scalar(
             select(Notification.id).where(
@@ -49,7 +88,9 @@ def generate(db: Session) -> dict:
     created: list[str] = []
 
     def add(**kw) -> None:
-        if notify(db, commit=False, **kw) is not None:
+        # Each condition below is a single standing aggregate — keep one live
+        # notification per category (supersede) so scans never pile up duplicates.
+        if notify(db, commit=False, supersede=True, **kw) is not None:
             created.append(kw["category"])
 
     # Low stock (quantity at or below safety stock).
