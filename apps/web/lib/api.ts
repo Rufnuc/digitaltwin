@@ -201,12 +201,38 @@ export const api = {
     }),
 
   // ---- Phase 4: AI assistant ----
-  assistantAsk: (question: string) =>
+  assistantAsk: (question: string, signal?: AbortSignal) =>
     request<AssistantResponse>("/assistant/ask", {
       method: "POST",
       body: JSON.stringify({ question }),
+      signal,
     }),
   assistantTools: () => request<{ tools: AssistantTool[] }>("/assistant/tools"),
+  // Local, offline Whisper transcription of recorded mic audio (16 kHz mono WAV).
+  assistantTranscribe: async (
+    wav: Blob,
+    signal?: AbortSignal,
+  ): Promise<{ text: string; language: string | null; model: string }> => {
+    const fd = new FormData();
+    fd.append("file", wav, "voice.wav");
+    const res = await fetch(`${V1}/assistant/transcribe`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${getToken() ?? ""}` },
+      body: fd,
+      signal,
+    });
+    if (!res.ok) {
+      let detail = res.statusText;
+      try {
+        const b = await res.json();
+        detail = typeof b.detail === "string" ? b.detail : detail;
+      } catch {
+        /* ignore */
+      }
+      throw new ApiError(res.status, detail);
+    }
+    return res.json();
+  },
 
   // ---- Phase 5: documents / OCR ingestion ----
   uploadDocument: (file: File) => {

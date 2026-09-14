@@ -42,6 +42,11 @@ class Settings(BaseSettings):
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "qwen2.5:7b"
 
+    # Voice input (Whisper, local & offline). The mic records 16 kHz mono WAV in
+    # the browser; the backend decodes it with the stdlib and transcribes with a
+    # locally cached openai-whisper model — no API key, no ffmpeg. Empty disables.
+    WHISPER_MODEL: str = "medium"
+
     # OCR / Document-AI (Phase 5). Default "structured_json" ingests machine-
     # readable invoice docs offline; commercial providers plug in with keys.
     OCR_PROVIDER: str = "structured_json"

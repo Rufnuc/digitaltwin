@@ -24,6 +24,10 @@ numpy==2.2.1
 # Live shipping monitor (aisstream.io AIS WebSocket)
 websockets==16.1.1
 
+# Voice input — local, offline speech-to-text (no API key, no ffmpeg needed).
+# WAV is decoded with the stdlib; the model runs on CPU via torch.
+openai-whisper==20240930
+
 # Testing / tooling
 pytest==8.3.4
 httpx==0.28.1
