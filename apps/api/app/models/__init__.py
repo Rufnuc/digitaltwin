@@ -20,6 +20,7 @@ from app.models.shipping import VesselTrack  # noqa: F401
 from app.models.simulation import SimulationResult, SimulationRun  # noqa: F401
 from app.models.supplier import Supplier  # noqa: F401
 from app.models.system import Alert, AuditLog, Notification  # noqa: F401
+from app.models.warehouse import StockLot, StockMovement, Warehouse  # noqa: F401
 from app.models.user import User  # noqa: F401
 
 __all__ = [
@@ -48,6 +49,9 @@ __all__ = [
     "SimulationRun",
     "SimulationResult",
     "VesselTrack",
+    "Warehouse",
+    "StockLot",
+    "StockMovement",
     "AuditLog",
     "Alert",
     "Notification",

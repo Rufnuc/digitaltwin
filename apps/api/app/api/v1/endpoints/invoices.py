@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from datetime import date
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
@@ -9,7 +12,7 @@ from app.core.enums import AuditAction, Role, VerificationStatus
 from app.models.invoice import Invoice, InvoiceLine
 from app.models.user import User
 from app.schemas.entities import InvoiceCreate, InvoiceOut
-from app.services import audit
+from app.services import audit, stock
 
 router = APIRouter(tags=["invoices"])
 
@@ -106,3 +109,85 @@ def create_invoice(
         summary="; ".join(warnings) if warnings else "invoice created",
     )
     return invoice
+
+
+# --------------------------------------------------------------------------- #
+# Sell — an invoice that MOVES stock: it draws each line from a warehouse (FIFO)
+# and records who bought which lot. This is the connected point of sale.
+# --------------------------------------------------------------------------- #
+class SellLine(BaseModel):
+    product_id: int
+    quantity: int = Field(gt=0)
+    unit_price: float
+    original_description: str | None = None
+
+
+class SellRequest(BaseModel):
+    invoice_number: str
+    invoice_date: date
+    warehouse_id: int
+    customer_id: int | None = None
+    currency: str = "NGN"
+    discount: float = 0
+    tax: float = 0
+    lines: list[SellLine] = Field(min_length=1)
+
+
+@router.post("/sell", status_code=status.HTTP_201_CREATED)
+def sell(
+    payload: SellRequest,
+    db: Session = Depends(db_session),
+    user: User = Depends(require_role(Role.STAFF)),
+) -> dict:
+    """Create an invoice and fulfil it from a warehouse's stock, decrementing lots
+    (FIFO) and tagging each movement with the buyer."""
+    subtotal = round(sum(ln.quantity * ln.unit_price for ln in payload.lines), 2)
+    total = round(subtotal + payload.tax - payload.discount, 2)
+
+    invoice = Invoice(
+        invoice_number=payload.invoice_number, invoice_date=payload.invoice_date,
+        customer_id=payload.customer_id, currency=payload.currency,
+        subtotal=subtotal, discount=payload.discount, tax=payload.tax, total=total,
+        verification_status=VerificationStatus.VERIFIED.value,
+    )
+    db.add(invoice)
+    db.flush()  # assign invoice.id for the stock movements
+
+    allocations: list[dict] = []
+    try:
+        for ln in payload.lines:
+            allocs = stock.allocate_for_sale(
+                db, product_id=ln.product_id, warehouse_id=payload.warehouse_id,
+                quantity=ln.quantity, invoice_id=invoice.id, customer_id=payload.customer_id,
+                user_id=user.id, commit=False,
+            )
+            # Weighted-average landed cost from the lots consumed = COGS basis.
+            qty = sum(a["quantity"] for a in allocs)
+            cost = sum((a["unit_cost"] or 0) * a["quantity"] for a in allocs)
+            avg_cost = round(cost / qty, 2) if qty else None
+            invoice.lines.append(InvoiceLine(
+                product_id=ln.product_id, original_description=ln.original_description,
+                quantity=ln.quantity, unit_price=ln.unit_price,
+                line_total=round(ln.quantity * ln.unit_price, 2), unit_cost=avg_cost,
+                verification_status=VerificationStatus.VERIFIED.value,
+            ))
+            allocations.append({"product_id": ln.product_id, "lots": allocs})
+    except stock.StockError as exc:
+        db.rollback()
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+
+    db.commit()
+    db.refresh(invoice)
+    audit.record(
+        db, action=AuditAction.CREATE, user_id=user.id, entity_type="invoice",
+        entity_id=invoice.id,
+        new_value={"invoice_number": invoice.invoice_number, "total": str(total),
+                   "warehouse_id": payload.warehouse_id},
+        summary=f"sale invoice {invoice.invoice_number} fulfilled from warehouse "
+                f"{payload.warehouse_id}",
+    )
+    return {
+        "invoice": InvoiceOut.model_validate(invoice).model_dump(mode="json"),
+        "allocations": allocations,
+        "note": "Stock drawn FIFO from the warehouse; each unit traces to its lot and buyer.",
+    }

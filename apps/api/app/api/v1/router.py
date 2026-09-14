@@ -20,6 +20,7 @@ from app.api.v1.endpoints import (
     notifications,
     shipping,
     simulations,
+    stock,
 )
 from app.core.enums import Role
 from app.models.customer import Customer
@@ -28,6 +29,7 @@ from app.models.inventory import Inventory
 from app.models.organization import Branch, Employee
 from app.models.product import Product
 from app.models.supplier import Supplier
+from app.models.warehouse import Warehouse
 from app.schemas import entities as e
 
 api_router = APIRouter()
@@ -47,6 +49,7 @@ api_router.include_router(agents.router)
 api_router.include_router(admin.router)
 api_router.include_router(shipping.router)
 api_router.include_router(notifications.router)
+api_router.include_router(stock.router)
 api_router.include_router(meta.router)
 
 # Generic CRUD resources
@@ -110,6 +113,20 @@ api_router.include_router(
         search_fields=("name", "code"),
     ),
     prefix="/branches",
+)
+api_router.include_router(
+    build_crud_router(
+        model=Warehouse,
+        create_schema=e.WarehouseCreate,
+        update_schema=e.WarehouseUpdate,
+        out_schema=e.WarehouseOut,
+        entity_type="warehouse",
+        tags=["warehouses"],
+        write_role=Role.MANAGER,
+        delete_role=Role.MANAGER,
+        search_fields=("name", "code", "location"),
+    ),
+    prefix="/warehouses",
 )
 api_router.include_router(
     build_crud_router(

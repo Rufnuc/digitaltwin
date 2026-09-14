@@ -122,6 +122,31 @@ class ProductOut(ProductBase, ProvenanceOut, TimestampsOut):
 # --------------------------------------------------------------------------- #
 # Branch / Employee
 # --------------------------------------------------------------------------- #
+class WarehouseBase(BaseModel):
+    code: str
+    name: str
+    location: str | None = None
+    address: str | None = None
+    type: str = "warehouse"
+    status: str = "ACTIVE"
+
+
+class WarehouseCreate(WarehouseBase):
+    pass
+
+
+class WarehouseUpdate(BaseModel):
+    name: str | None = None
+    location: str | None = None
+    address: str | None = None
+    type: str | None = None
+    status: str | None = None
+
+
+class WarehouseOut(WarehouseBase, TimestampsOut):
+    id: int
+
+
 class BranchBase(BaseModel):
     code: str
     name: str
