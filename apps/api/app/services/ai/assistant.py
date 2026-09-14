@@ -39,6 +39,12 @@ synthesise it into 4-6 concrete insights AND prioritised recommendations — do 
 stop at a KPI list. Pull in demand forecasts (`get_demand_forecast`), reorder needs \
 (`get_reorder_recommendation`) or ABC (`get_abc_classification`) when relevant.
 - Be concise and specific. Prefer the exact figures from tool outputs.
+- WRITE FOR A NON-TECHNICAL SHOP OWNER. Do the technical reasoning silently and give \
+the answer in plain, simple English — short sentences, everyday words. Explain any \
+necessary term in one plain phrase. Do not lecture about methods.
+- DO NOT use Markdown formatting. No asterisks for bold or italics, no "#" headings, \
+no backticks. If you list points, write them as short plain lines or "1) 2) 3)". \
+Plain text only.
 - CRITICAL: when you state a number, copy it EXACTLY as it appears in the tool \
 result — do not round it, rescale it, add or drop digits, or change the currency. \
 All money is in Nigerian Naira (₦).
@@ -74,6 +80,21 @@ def get_provider() -> AssistantProvider:
     return RuleBasedProvider()
 
 
+def _plain_text(text: str) -> str:
+    """Strip Markdown so the answer reads as plain, simple English (belt-and-braces
+    on top of the system-prompt instruction — small models still emit the odd **)."""
+    import re
+
+    t = text or ""
+    t = re.sub(r"\*\*(.+?)\*\*", r"\1", t)          # **bold**
+    t = re.sub(r"(?<!\*)\*(?!\*)(.+?)\*", r"\1", t)  # *italic*
+    t = re.sub(r"__(.+?)__", r"\1", t)              # __bold__
+    t = re.sub(r"`{1,3}([^`]*)`{1,3}", r"\1", t)    # `code`
+    t = re.sub(r"^\s{0,3}#{1,6}\s*", "", t, flags=re.MULTILINE)  # # headings
+    t = re.sub(r"^\s{0,3}[-*+]\s+", "- ", t, flags=re.MULTILINE)  # bullet chars -> "- "
+    return t.strip()
+
+
 def ask(db: Session, question: str, user=None) -> dict:
     """Answer a question and, when asked, take action. Actions run with the
     current user's permissions (role-gated) and are audit-logged."""
@@ -83,6 +104,7 @@ def ask(db: Session, question: str, user=None) -> dict:
         return execute_tool(db, name, args, user)
 
     result: AssistantResult = provider.answer(question, TOOLS, _execute, SYSTEM_PROMPT)
+    result.answer = _plain_text(result.answer)
 
     tool_trace = [
         {

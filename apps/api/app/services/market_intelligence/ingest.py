@@ -101,11 +101,11 @@ def _label_for(indicator: str) -> str:
         "inflation_cpi_yoy": "Inflation (CPI, annual %)",
         "gdp_growth": "GDP growth (annual %)",
         "lending_rate": "Lending interest rate (%)",
-        "official_fx_usd": "Official FX (NGN/USD)",
-        "fx_usd_ngn": "USD → NGN",
-        "fx_eur_ngn": "EUR → NGN",
-        "fx_gbp_ngn": "GBP → NGN",
-        "fx_cny_ngn": "CNY → NGN (Chinese Yuan)",
+        "official_fx_usd": "Official FX (NGN/USD, World Bank annual avg)",
+        "fx_usd_ngn": "USD → NGN (interbank ref; parallel rate differs)",
+        "fx_eur_ngn": "EUR → NGN (interbank ref)",
+        "fx_gbp_ngn": "GBP → NGN (interbank ref)",
+        "fx_cny_ngn": "CNY → NGN (interbank ref)",
     }
     return labels.get(indicator, indicator)
 

@@ -42,33 +42,51 @@ WB_INDICATORS = [
 
 FX_URL = "https://open.er-api.com/v6/latest/USD"
 
-# Two real Google-News feeds: local Nigerian business, and China/Asia trade —
-# most imported parts come from China, so Chinese economic news is material.
+# Focused Google-News feeds for a Nigerian auto-parts import/wholesale business.
+# Boolean OR narrows the results to genuinely on-topic stories.
 NEWS_URLS = [
-    ("https://news.google.com/rss/search"
-     "?q=Nigeria+economy+naira+inflation+fuel+import+business"
+    # Nigeria import / FX / ports / auto trade.
+    ("https://news.google.com/rss/search?q="
+     "Nigeria+(import+OR+customs+OR+%22exchange+rate%22+OR+naira+OR+%22spare+parts%22"
+     "+OR+%22auto+parts%22+OR+port+OR+Apapa)+business"
      "&hl=en-NG&gl=NG&ceid=NG:en"),
-    ("https://news.google.com/rss/search"
-     "?q=China+yuan+exports+manufacturing+Nigeria+trade+shipping+tariff"
+    # China → Nigeria trade / shipping / manufacturing.
+    ("https://news.google.com/rss/search?q="
+     "China+(export+OR+shipping+OR+yuan+OR+tariff+OR+manufacturing)+Nigeria+trade"
      "&hl=en&gl=US&ceid=US:en"),
 ]
 
-# Terms that make a headline relevant to an auto-parts import/wholesale business
-# sourcing from China (and the West).
-BUSINESS_KEYWORDS = [
-    "naira", "inflation", "fuel", "petrol", "diesel", "import", "customs", "tariff",
-    "exchange rate", "forex", "fx", "dollar", "port", "supply", "vehicle", "auto",
-    "spare part", "car", "transport", "interest rate", "cbn", "manufacturing", "cost",
-    "china", "chinese", "yuan", "renminbi", "rmb", "export", "shipping", "container",
-    "shenzhen", "guangzhou", "factory", "supply chain",
+# Core terms — a headline is only relevant if it contains at least one of these.
+CORE_KEYWORDS = [
+    "import", "customs", "tariff", "duty", "naira", "forex", "exchange rate", "dollar",
+    "port", "apapa", "tin can", "auto", "spare part", "vehicle", "truck", "tractor",
+    "china", "chinese", "yuan", "renminbi", "cbn", "inflation", "shipping", "freight",
+    "container", "supply chain", "manufacturing", "clearing", "cargo",
 ]
+# Supporting context terms that add relevance once a core term is present.
+CONTEXT_KEYWORDS = [
+    "cost", "supply", "transport", "export", "factory", "economy", "price", "fuel",
+    "petrol", "diesel", "interest rate", "devaluation", "logistics", "warehouse",
+]
+# Kept for the shipping-conditions taxonomy import that references it.
+BUSINESS_KEYWORDS = CORE_KEYWORDS + CONTEXT_KEYWORDS
+
+MIN_NEWS_RELEVANCE = 0.15  # below this a headline is dropped as off-topic
+
+
+def _has_word(kw: str, text: str) -> bool:
+    return re.search(rf"\b{re.escape(kw)}\b", text) is not None
 
 
 def score_relevance(text: str) -> float:
-    """Transparent keyword relevance in [0,1] for the business's context."""
+    """Whole-word keyword relevance in [0,1]. Zero unless a CORE term is present, so
+    incidental matches ('cost', 'car' inside 'career') do not inflate the score."""
     t = (text or "").lower()
-    hits = sum(1 for kw in BUSINESS_KEYWORDS if kw in t)
-    return round(min(hits / 4.0, 1.0), 3)
+    core = sum(1 for kw in CORE_KEYWORDS if _has_word(kw, t))
+    if core == 0:
+        return 0.0
+    ctx = sum(1 for kw in CONTEXT_KEYWORDS if _has_word(kw, t))
+    return round(min(1.0, (2 * core + ctx) / 6.0), 3)
 
 
 def _wb_url(code: str) -> str:
@@ -113,21 +131,33 @@ def parse_fx(payload: dict) -> list[EconomicPoint]:
         datetime.fromtimestamp(ts, tz=timezone.utc).date().isoformat()
         if ts else datetime.now(timezone.utc).date().isoformat()
     )
-    out = [EconomicPoint("fx_usd_ngn", "Exchange rate USD → NGN", period, round(float(ngn), 2),
+    # open.er-api.com gives an interbank/aggregate reference rate. Nigeria has
+    # several rates (official/NAFEM and parallel market) that can differ a lot, so
+    # this may not match a bureau-de-change quote. The label says so honestly.
+    lbl = "(interbank ref; parallel rate differs)"
+    out = [EconomicPoint("fx_usd_ngn", f"USD → NGN {lbl}", period, round(float(ngn), 2),
                          "NGN/USD", "open.er-api.com", FX_URL)]
     if rates.get("EUR"):
-        out.append(EconomicPoint("fx_eur_ngn", "Exchange rate EUR → NGN", period,
+        out.append(EconomicPoint("fx_eur_ngn", f"EUR → NGN {lbl}", period,
                                  round(float(ngn) / float(rates["EUR"]), 2), "NGN/EUR",
                                  "open.er-api.com", FX_URL))
     if rates.get("GBP"):
-        out.append(EconomicPoint("fx_gbp_ngn", "Exchange rate GBP → NGN", period,
+        out.append(EconomicPoint("fx_gbp_ngn", f"GBP → NGN {lbl}", period,
                                  round(float(ngn) / float(rates["GBP"]), 2), "NGN/GBP",
                                  "open.er-api.com", FX_URL))
     if rates.get("CNY"):
-        out.append(EconomicPoint("fx_cny_ngn", "Exchange rate CNY → NGN", period,
+        out.append(EconomicPoint("fx_cny_ngn", f"CNY → NGN {lbl}", period,
                                  round(float(ngn) / float(rates["CNY"]), 2), "NGN/CNY",
                                  "open.er-api.com", FX_URL))
     return out
+
+
+def _norm_title(title: str) -> str:
+    """Normalise a headline for dedup: drop the trailing ' - Publisher', lowercase,
+    keep only words. Near-identical stories from different outlets collapse."""
+    t = re.sub(r"\s+-\s+[^-]+$", "", title or "")  # strip " - Publisher" suffix
+    t = re.sub(r"[^a-z0-9 ]", "", t.lower())
+    return re.sub(r"\s+", " ", t).strip()
 
 
 def parse_rss(xml_text: str, limit: int = 15) -> list[MarketNews]:
@@ -187,9 +217,17 @@ class LiveMarketProvider:
             for url in NEWS_URLS:  # local Nigerian feed + China/Asia trade feed
                 try:
                     for n in parse_rss(c.get(url).text):
-                        if n.title and n.title not in seen:
-                            seen.add(n.title)
-                            items.append(n)
+                        # Drop off-topic headlines; dedup near-duplicates (same story
+                        # from different publishers share a normalised title).
+                        if (n.relevance or 0) < MIN_NEWS_RELEVANCE:
+                            continue
+                        key = _norm_title(n.title)
+                        if not key or key in seen:
+                            continue
+                        seen.add(key)
+                        items.append(n)
                 except httpx.HTTPError as e:
                     logger.warning("News fetch failed for %s: %s", url, e)
+        # Best (most relevant) first.
+        items.sort(key=lambda n: n.relevance or 0, reverse=True)
         return items
