@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from app.models.inventory import Inventory
 from app.models.product import Product
 from app.models.warehouse import StockLot
+from app.services.quant import backtest as bt
 from app.services.quant import classification as cls
 from app.services.quant import config_version
 from app.services.quant import demand as dmd
@@ -62,6 +63,7 @@ def product_forecast(db: Session, product_id: int, as_of: date | None = None,
     series = dmd.product_weekly_demand(db, product_id, as_of, include_demo=include_demo)
     pattern = cls.classify_pattern(series["units"])
     forecast = fc.forecast(series["units"], pattern["pattern"], horizon=horizon, seed=seed)
+    diagnostics = bt.rolling_origin_backtest(series["units"], pattern["pattern"], seed=seed)
     return {
         "status": "OK" if pattern["pattern"] != "NO_EVIDENCE" else "INSUFFICIENT_DATA",
         "product_id": product_id,
@@ -72,6 +74,7 @@ def product_forecast(db: Session, product_id: int, as_of: date | None = None,
                    "total_units": series["total_units"], "stats": series["stats"]},
         "classification": pattern,
         "forecast": forecast,
+        "diagnostics": diagnostics,
         "config_version": config_version(),
         "provenance": "MODEL_OUTPUT",
     }
@@ -86,6 +89,7 @@ def product_reorder(db: Session, product_id: int, as_of: date | None = None,
     series = dmd.product_weekly_demand(db, product_id, as_of, include_demo=include_demo)
     pattern = cls.classify_pattern(series["units"])
     forecast = fc.forecast(series["units"], pattern["pattern"], horizon=12)
+    diagnostics = bt.rolling_origin_backtest(series["units"], pattern["pattern"])
     weekly_mean, weekly_std = _weekly_stats(series["units"])
 
     missing = []
@@ -105,6 +109,7 @@ def product_reorder(db: Session, product_id: int, as_of: date | None = None,
         mean_lead_time_days=float(lead), review_period_days=review_period_days,
         service_level=service_level, unit_cost=float(prod.purchase_cost),
         uncertainty_ratio=_uncertainty_ratio(forecast),
+        wape=diagnostics.get("wape"), validation_status=diagnostics.get("validation_status"),
         moq=1.0, order_multiple=float(prod.reorder_quantity or 1) if prod.reorder_quantity else 1.0,
     )
     eoq = ro.eoq(
@@ -119,6 +124,7 @@ def product_reorder(db: Session, product_id: int, as_of: date | None = None,
         "pattern": pattern["pattern"],
         "recommendation": rec,
         "eoq": eoq,
+        "diagnostics": diagnostics,
         "config_version": config_version(),
         "provenance": "MODEL_OUTPUT",
     }

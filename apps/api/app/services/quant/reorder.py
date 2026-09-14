@@ -20,6 +20,7 @@ import math
 HOLDING_RATE = 0.25          # annual holding cost as a fraction of unit cost (spec v4 §7)
 DEFAULT_SERVICE_LEVEL = 0.95
 UNCERTAINTY_SUPPRESS = 2.0   # (p95-p05)/p50 above this suppresses (spec v5 §6)
+WAPE_SUPPRESS = 0.80         # backtest WAPE above this suppresses (spec v5 §6)
 
 
 def norm_ppf(p: float) -> float:
@@ -81,7 +82,8 @@ def reorder_recommendation(
     *, weekly_mean: float, weekly_std: float, inventory_position: float,
     mean_lead_time_days: float, review_period_days: int = 7,
     service_level: float = DEFAULT_SERVICE_LEVEL, unit_cost: float | None = None,
-    uncertainty_ratio: float | None = None, moq: float = 1.0, order_multiple: float = 1.0,
+    uncertainty_ratio: float | None = None, wape: float | None = None,
+    validation_status: str | None = None, moq: float = 1.0, order_multiple: float = 1.0,
 ) -> dict:
     """Periodic-review order-up-to recommendation with a forecast-quality gate."""
     horizon = protection_horizon_days(mean_lead_time_days, review_period_days)
@@ -99,12 +101,20 @@ def reorder_recommendation(
         if order_multiple > 1:
             qty = math.ceil(qty / order_multiple) * order_multiple
 
-    # Forecast-quality gate (spec v5 §6 / v6 §3).
+    # Forecast-quality gate (spec v5 §6 / v6 §3): unreliable/uncertain/unvalidated
+    # forecasts never yield an ordinary READY recommendation.
     status = "READY"
     warnings: list[str] = []
-    if uncertainty_ratio is not None and uncertainty_ratio > UNCERTAINTY_SUPPRESS:
+    if validation_status == "INSUFFICIENT_DATA" or wape is None:
+        status = "REVIEW_REQUIRED"
+        warnings.append("QUALITY_EVIDENCE_MISSING")
+    elif wape > WAPE_SUPPRESS:
         status = "REVIEW_REQUIRED"
         warnings.append("FORECAST_UNRELIABLE")
+    if uncertainty_ratio is not None and uncertainty_ratio > UNCERTAINTY_SUPPRESS:
+        status = "REVIEW_REQUIRED"
+        if "FORECAST_UNRELIABLE" not in warnings:
+            warnings.append("FORECAST_UNRELIABLE")
     if weekly_mean <= 0:
         status = "REVIEW_REQUIRED"
         warnings.append("NO_DEMAND_SIGNAL")

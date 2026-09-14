@@ -45,6 +45,7 @@ def test_reorder_recommendation_orders_when_below_target():
     r = ro.reorder_recommendation(
         weekly_mean=14, weekly_std=7, inventory_position=5,
         mean_lead_time_days=7, review_period_days=7, service_level=0.95, unit_cost=100,
+        wape=0.3, validation_status="OK",  # good forecast quality -> not suppressed
     )
     assert r["policy"] == "ORDER_UP_TO"
     assert r["recommended_order_quantity"] > 0
@@ -53,6 +54,24 @@ def test_reorder_recommendation_orders_when_below_target():
     # daily mean 2 * horizon(14) = 28 expected demand
     assert abs(r["expected_demand_over_horizon"] - 28.0) < 1e-6
     assert r["recommendation_status"] == "READY"
+
+
+def test_reorder_missing_quality_evidence_requires_review():
+    r = ro.reorder_recommendation(
+        weekly_mean=10, weekly_std=5, inventory_position=0, mean_lead_time_days=7,
+        wape=None, validation_status="INSUFFICIENT_DATA",
+    )
+    assert r["recommendation_status"] == "REVIEW_REQUIRED"
+    assert "QUALITY_EVIDENCE_MISSING" in r["warnings"]
+
+
+def test_reorder_high_wape_suppressed():
+    r = ro.reorder_recommendation(
+        weekly_mean=10, weekly_std=5, inventory_position=0, mean_lead_time_days=7,
+        wape=0.9, validation_status="OK",
+    )
+    assert r["recommendation_status"] == "REVIEW_REQUIRED"
+    assert "FORECAST_UNRELIABLE" in r["warnings"]
 
 
 def test_reorder_quality_gate_suppresses_uncertain_forecast():
