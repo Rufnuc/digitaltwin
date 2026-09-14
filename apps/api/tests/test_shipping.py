@@ -6,9 +6,46 @@ from app.services.shipping.collector import ShippingStore, classify_region
 
 def test_region_classification():
     assert classify_region(31.2, 121.5) == "China / Asia"        # Shanghai
+    assert classify_region(40.96, 28.7) == "Turkey / Mediterranean"  # Ambarlı (Istanbul)
+    assert classify_region(36.8, 34.6) == "Turkey / Mediterranean"  # Mersin
     assert classify_region(6.4, 3.4) == "Nigeria / Gulf of Guinea"  # Lagos
     assert classify_region(-34.0, 18.0) == "In transit"          # off South Africa
     assert classify_region(None, None) == "Unknown"
+
+
+def test_origin_tracking_and_confirmed_arrival():
+    """A Turkey-origin vessel later seen in Nigerian waters is a confirmed route."""
+    s = ShippingStore()
+    # First sighting: off Mersin, Turkey.
+    s.update_position({"MMSI": 555, "ShipName": "BOSPHORUS", "latitude": 36.8, "longitude": 34.6}, {})
+    v = s.vessels[555]
+    assert v["origin_region"] == "Turkey / Mediterranean"
+    assert v["arrived_nigeria"] is False
+
+    # Same vessel later reports from Lagos — origin stays Turkey, now arrived.
+    s.update_position({"MMSI": 555, "latitude": 6.4, "longitude": 3.4}, {})
+    v = s.vessels[555]
+    assert v["origin_region"] == "Turkey / Mediterranean"  # unchanged
+    assert v["region"] == "Nigeria / Gulf of Guinea"
+    assert v["arrived_nigeria"] is True
+
+    watch = s.status()["nigeria_watch"]
+    assert watch["turkey_arrived"] == 1
+
+
+def test_eta_parsing_and_watch_filter():
+    s = ShippingStore()
+    s.update_position({"MMSI": 9, "ShipName": "C", "latitude": 31.2, "longitude": 121.5}, {})
+    s.update_static({"MMSI": 9}, {"Destination": "NGLOS", "Eta": {"Month": 5, "Day": 12,
+                                                                  "Hour": 14, "Minute": 30}})
+    v = s.vessels[9]
+    assert v["eta"] == "05-12 14:30 UTC"
+    # A blank ETA (all zeros) is left as None rather than shown as 00-00.
+    s.update_static({"MMSI": 9}, {"Eta": {"Month": 0, "Day": 0, "Hour": 24, "Minute": 60}})
+    assert s.vessels[9]["eta"] == "05-12 14:30 UTC"  # kept prior good value
+
+    # nigeria_watch returns declared + arrived.
+    assert len(s.snapshot(nigeria_watch=True)) == 1
 
 
 def test_position_and_static_updates_and_nigeria_flag():

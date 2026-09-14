@@ -9,7 +9,7 @@ export default function ShippingPage() {
   const [status, setStatus] = useState<ShippingStatus | null>(null);
   const [vessels, setVessels] = useState<Vessel[]>([]);
   const [region, setRegion] = useState("");
-  const [ngOnly, setNgOnly] = useState(false);
+  const [watchOnly, setWatchOnly] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -18,14 +18,14 @@ export default function ShippingPage() {
       setStatus(st);
       const params =
         `?limit=300` + (region ? `&region=${encodeURIComponent(region)}` : "") +
-        (ngOnly ? `&nigeria_bound=true` : "");
+        (watchOnly ? `&nigeria_watch=true` : "");
       const v = await api.shippingVessels(params);
       setVessels(v.items);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load");
     }
-  }, [region, ngOnly]);
+  }, [region, watchOnly]);
 
   useEffect(() => {
     load();
@@ -37,7 +37,7 @@ export default function ShippingPage() {
     <div>
       <PageHeader
         title="Shipping Monitor"
-        subtitle="Live vessel positions (real AIS data) on the China ↔ Nigeria trade lanes. Positions are real observations; 'bound for Nigeria' is derived from each ship's self-reported destination."
+        subtitle="Live vessel positions (real AIS data) on the China → Nigeria and Turkey → Nigeria trade lanes. Positions are real observations; 'bound for Nigeria' is each ship's self-reported destination, and 'arrived' means a tracked China/Turkey vessel has since been seen in Nigerian waters."
       />
 
       {error && <div className="mb-3 text-sm text-red-700">Error: {error}</div>}
@@ -58,9 +58,33 @@ export default function ShippingPage() {
               sub={status.last_message_at ? new Date(status.last_message_at).toLocaleTimeString() : ""}
             />
             <Kpi label="Vessels tracked" value={num(status.vessels_tracked)} />
-            <Kpi label="Bound for Nigeria" value={num(status.nigeria_bound)} />
+            <Kpi label="Declared for Nigeria" value={num(status.nigeria_bound)} sub="self-reported" />
             <Kpi label="Messages" value={num(status.messages_received)} />
           </div>
+
+          {/* "Will China / Turkey vessels touch Nigeria?" — declared intent + observed arrival. */}
+          <Card className="mb-4 p-4">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-sm font-medium">Nigeria watch — by source lane</span>
+              <span className="text-[11px] text-muted">
+                declared = ship says so · arrived = we saw it in NG waters
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <LaneStat
+                lane="China → Nigeria"
+                declared={status.nigeria_watch.china_declared}
+                arrived={status.nigeria_watch.china_arrived}
+                tracked={status.by_origin["China / Asia"] ?? 0}
+              />
+              <LaneStat
+                lane="Turkey → Nigeria"
+                declared={status.nigeria_watch.turkey_declared}
+                arrived={status.nigeria_watch.turkey_arrived}
+                tracked={status.by_origin["Turkey / Mediterranean"] ?? 0}
+              />
+            </div>
+          </Card>
 
           <div className="mb-3 flex flex-wrap items-center gap-3">
             <select
@@ -76,8 +100,12 @@ export default function ShippingPage() {
               ))}
             </select>
             <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={ngOnly} onChange={(e) => setNgOnly(e.target.checked)} />
-              Nigeria-bound only
+              <input
+                type="checkbox"
+                checked={watchOnly}
+                onChange={(e) => setWatchOnly(e.target.checked)}
+              />
+              Nigeria watch only (declared or arrived)
             </label>
             <span className="ml-auto text-[11px] text-muted">Auto-refreshing every 15s</span>
           </div>
@@ -98,18 +126,15 @@ export default function ShippingPage() {
                   <div
                     key={v.mmsi}
                     className={`rounded-lg border border-line p-3 ${
-                      v.bound_for_nigeria ? "bg-green-500/15" : "bg-paper"
+                      v.bound_for_nigeria || v.arrived_nigeria ? "bg-green-500/15" : "bg-paper"
                     }`}
                   >
-                    <div className="mb-1 flex items-center gap-2 text-sm font-medium">
+                    <div className="mb-1 flex flex-wrap items-center gap-2 text-sm font-medium">
                       {v.name}
-                      {v.bound_for_nigeria && (
-                        <span className="rounded bg-green-600 px-1 py-0.5 text-[9px] text-white">
-                          → NIGERIA
-                        </span>
-                      )}
+                      <VesselBadges v={v} />
                     </div>
                     <VRow label="MMSI" value={<span className="text-muted">{v.mmsi}</span>} />
+                    <VRow label="Origin" value={shortRegion(v.origin_region)} />
                     <VRow
                       label="Position"
                       value={
@@ -130,6 +155,7 @@ export default function ShippingPage() {
                     <VRow label="Speed" value={v.sog != null ? `${v.sog} kn` : "—"} />
                     <VRow label="Region" value={v.region} />
                     <VRow label="Destination" value={v.destination ?? "—"} />
+                    <VRow label="ETA" value={v.eta ?? "—"} />
                     <VRow
                       label="Seen"
                       value={v.last_seen ? new Date(v.last_seen).toLocaleTimeString() : "—"}
@@ -144,7 +170,7 @@ export default function ShippingPage() {
               <table className="min-w-full text-sm">
                 <thead className="bg-wash text-left text-xs uppercase tracking-wide text-muted">
                   <tr>
-                    {["Vessel", "MMSI", "Position", "Speed", "Region", "Destination", "Seen"].map(
+                    {["Vessel", "Origin", "Position", "Speed", "Region", "Destination", "ETA", "Seen"].map(
                       (h) => (
                         <th key={h} className="px-3 py-2 font-medium">
                           {h}
@@ -156,7 +182,7 @@ export default function ShippingPage() {
                 <tbody>
                   {vessels.length === 0 ? (
                     <tr>
-                      <td className="px-3 py-6 text-muted" colSpan={7}>
+                      <td className="px-3 py-6 text-muted" colSpan={8}>
                         No vessels in view yet — data accumulates as ships report.
                       </td>
                     </tr>
@@ -164,17 +190,17 @@ export default function ShippingPage() {
                     vessels.map((v) => (
                       <tr
                         key={v.mmsi}
-                        className={`border-t border-line ${v.bound_for_nigeria ? "bg-green-500/15" : ""}`}
+                        className={`border-t border-line ${
+                          v.bound_for_nigeria || v.arrived_nigeria ? "bg-green-500/15" : ""
+                        }`}
                       >
                         <td className="px-3 py-2 font-medium">
-                          {v.name}
-                          {v.bound_for_nigeria && (
-                            <span className="ml-2 rounded bg-green-600 px-1 py-0.5 text-[9px] text-white">
-                              → NIGERIA
-                            </span>
-                          )}
+                          <div className="flex flex-wrap items-center gap-2">
+                            {v.name}
+                            <VesselBadges v={v} />
+                          </div>
                         </td>
-                        <td className="px-3 py-2 tabular-nums text-muted">{v.mmsi}</td>
+                        <td className="px-3 py-2">{shortRegion(v.origin_region)}</td>
                         <td className="px-3 py-2 tabular-nums">
                           {v.lat != null && v.lon != null ? (
                             <a
@@ -194,6 +220,7 @@ export default function ShippingPage() {
                         </td>
                         <td className="px-3 py-2">{v.region}</td>
                         <td className="px-3 py-2">{v.destination ?? "—"}</td>
+                        <td className="px-3 py-2 tabular-nums text-[11px]">{v.eta ?? "—"}</td>
                         <td className="px-3 py-2 text-[11px] text-muted">
                           {v.last_seen ? new Date(v.last_seen).toLocaleTimeString() : "—"}
                         </td>
@@ -215,6 +242,58 @@ function VRow({ label, value }: { label: string; value: ReactNode }) {
     <div className="flex items-start justify-between gap-3 py-0.5 text-sm">
       <span className="shrink-0 text-xs uppercase tracking-wide text-muted">{label}</span>
       <span className="min-w-0 break-words text-right tabular-nums">{value}</span>
+    </div>
+  );
+}
+
+// Short label for an origin/region string ("China / Asia" -> "China").
+function shortRegion(region: string | null): string {
+  if (!region) return "—";
+  return region.split(" / ")[0];
+}
+
+// Declared-intent and observed-arrival badges for a vessel.
+function VesselBadges({ v }: { v: Vessel }) {
+  return (
+    <>
+      {v.arrived_nigeria && (
+        <span className="rounded bg-green-700 px-1 py-0.5 text-[9px] text-white">✓ ARRIVED NG</span>
+      )}
+      {v.bound_for_nigeria && !v.arrived_nigeria && (
+        <span className="rounded bg-green-600 px-1 py-0.5 text-[9px] text-white">→ NIGERIA</span>
+      )}
+    </>
+  );
+}
+
+// One source lane's Nigeria-watch counts.
+function LaneStat({
+  lane,
+  declared,
+  arrived,
+  tracked,
+}: {
+  lane: string;
+  declared: number;
+  arrived: number;
+  tracked: number;
+}) {
+  return (
+    <div className="rounded-lg border border-line p-3">
+      <div className="text-sm font-medium">{lane}</div>
+      <div className="mt-1 flex items-baseline gap-4">
+        <span>
+          <span className="text-2xl font-semibold tabular-nums">{declared}</span>{" "}
+          <span className="text-xs text-muted">declared</span>
+        </span>
+        <span>
+          <span className="text-2xl font-semibold tabular-nums text-green-700 dark:text-green-300">
+            {arrived}
+          </span>{" "}
+          <span className="text-xs text-muted">arrived</span>
+        </span>
+      </div>
+      <div className="mt-1 text-[11px] text-muted">{tracked} vessels tracked from this lane</div>
     </div>
   );
 }

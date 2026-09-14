@@ -1,12 +1,17 @@
 """Live shipping monitor via aisstream.io (real AIS vessel data).
 
 A single background WebSocket connection streams vessel positions for the China →
-Nigeria trade lanes and keeps an in-memory store of the latest position per
-vessel. Reads are served from that store, so endpoints never block on the socket.
+Nigeria and Turkey → Nigeria trade lanes and keeps an in-memory store of the
+latest position per vessel. Reads are served from that store, so endpoints never
+block on the socket.
 
-Provenance: positions are REAL observations from AIS. The "bound for Nigeria" flag
-is derived from each vessel's self-reported AIS destination (an ASSUMPTION about
-intent, not a guarantee).
+Provenance: positions are REAL observations from AIS. Whether a vessel will reach
+Nigeria is answered two ways, both surfaced honestly:
+  * Declared intent — the ship's self-reported AIS destination (+ ETA). Forward-
+    looking, but self-reported: an intent signal, not a guarantee.
+  * Observed arrival — because we track each vessel by MMSI over time, we record
+    where we first saw it (its origin lane) and flag it when it later appears in
+    Nigerian waters. That is a confirmed China/Turkey → Nigeria arrival.
 
 Note: state is in-process (fine for a single API worker / dev). A multi-worker
 production deployment would move this to Redis or a dedicated collector service.
@@ -24,10 +29,17 @@ logger = logging.getLogger("digitaltwin.shipping")
 
 AISSTREAM_URL = "wss://stream.aisstream.io/v0/stream"
 
-# Bounding boxes (each [[lat1,lon1],[lat2,lon2]]): China ports and the Nigerian coast.
+# Bounding boxes (each [[lat1,lon1],[lat2,lon2]]): source lanes + the Nigerian coast.
 CHINA_BOX = [[18.0, 108.0], [41.0, 127.0]]        # South/East China Sea major ports
+TURKEY_BOX = [[35.5, 26.0], [41.5, 37.0]]         # Marmara/Aegean/Med: Ambarlı, Izmir, Mersin
 NIGERIA_BOX = [[2.0, 2.0], [8.0, 9.0]]            # Gulf of Guinea (Lagos, Apapa, Onne)
-BOUNDING_BOXES = [CHINA_BOX, NIGERIA_BOX]
+BOUNDING_BOXES = [CHINA_BOX, TURKEY_BOX, NIGERIA_BOX]
+
+# Region labels used for origin tracking and the "source → Nigeria" routes.
+CHINA_REGION = "China / Asia"
+TURKEY_REGION = "Turkey / Mediterranean"
+NIGERIA_REGION = "Nigeria / Gulf of Guinea"
+SOURCE_REGIONS = (CHINA_REGION, TURKEY_REGION)
 
 # Nigerian destinations in AIS free-text (port codes / names).
 _NG_DEST_TOKENS = ("NGLOS", "NGAPP", "NGTIN", "NGONN", "NGPHC", "LAGOS", "APAPA",
@@ -45,9 +57,11 @@ def classify_region(lat: float | None, lon: float | None) -> str:
     if lat is None or lon is None:
         return "Unknown"
     if 100 <= lon <= 130 and 0 <= lat <= 45:
-        return "China / Asia"
+        return CHINA_REGION
+    if 25 <= lon <= 38 and 34 <= lat <= 42:
+        return TURKEY_REGION
     if -5 <= lon <= 12 and -8 <= lat <= 12:
-        return "Nigeria / Gulf of Guinea"
+        return NIGERIA_REGION
     return "In transit"
 
 
@@ -56,6 +70,20 @@ def _is_nigeria_bound(destination: str | None) -> bool:
         return False
     d = destination.upper()
     return any(tok in d for tok in _NG_DEST_TOKENS)
+
+
+def _format_eta(eta: dict | None) -> str | None:
+    """AIS ETA is broadcast as month/day/hour/minute (no year). Render it, or None
+    when the ship left the field blank (all zeros / 24 / 60 = 'not available')."""
+    if not isinstance(eta, dict):
+        return None
+    mo, day = eta.get("Month") or 0, eta.get("Day") or 0
+    hr, mi = eta.get("Hour"), eta.get("Minute")
+    if not mo or not day:
+        return None
+    hr = 0 if hr in (None, 24) else hr
+    mi = 0 if mi in (None, 60) else mi
+    return f"{mo:02d}-{day:02d} {hr:02d}:{mi:02d} UTC"
 
 
 class ShippingStore:
@@ -73,8 +101,10 @@ class ShippingStore:
         if v is None:
             v = {"mmsi": mmsi, "name": (name or "").strip() or f"MMSI {mmsi}",
                  "lat": None, "lon": None, "sog": None, "cog": None,
-                 "ship_type": None, "destination": None, "region": "Unknown",
-                 "bound_for_nigeria": False, "last_seen": None}
+                 "ship_type": None, "destination": None, "eta": None,
+                 "region": "Unknown", "origin_region": None,
+                 "bound_for_nigeria": False, "arrived_nigeria": False,
+                 "last_seen": None}
             self.vessels[mmsi] = v
         elif name and name.strip():
             v["name"] = name.strip()
@@ -94,6 +124,12 @@ class ShippingStore:
         if isinstance(report.get("Cog"), int | float):
             v["cog"] = report["Cog"]
         v["region"] = classify_region(v["lat"], v["lon"])
+        # Record where we first saw the vessel (its origin lane) so a China- or
+        # Turkey-origin ship that later shows up in Nigeria is a confirmed route.
+        if v["origin_region"] is None and v["region"] not in ("Unknown", "In transit"):
+            v["origin_region"] = v["region"]
+        if v["region"] == NIGERIA_REGION:
+            v["arrived_nigeria"] = True
         v["last_seen"] = _now().isoformat()
         self._touch()
 
@@ -106,6 +142,9 @@ class ShippingStore:
         if dest:
             v["destination"] = dest
             v["bound_for_nigeria"] = _is_nigeria_bound(dest)
+        eta = _format_eta(static.get("Eta"))
+        if eta:
+            v["eta"] = eta
         if static.get("Type") is not None:
             v["ship_type"] = static.get("Type")
         v["last_seen"] = _now().isoformat()
@@ -132,22 +171,39 @@ class ShippingStore:
 
     # --- reads (served to endpoints) ---
     def snapshot(self, region: str | None = None, nigeria_bound: bool | None = None,
+                 origin: str | None = None, nigeria_watch: bool | None = None,
                  limit: int = 200) -> list[dict]:
         rows = [v for v in self.vessels.values() if v["lat"] is not None]
         if region:
             rows = [v for v in rows if v["region"] == region]
+        if origin:
+            rows = [v for v in rows if v["origin_region"] == origin]
         if nigeria_bound is not None:
             rows = [v for v in rows if v["bound_for_nigeria"] == nigeria_bound]
+        if nigeria_watch:
+            # Every ship that will (declared) or did (observed) touch Nigeria.
+            rows = [v for v in rows if v["bound_for_nigeria"] or v["arrived_nigeria"]]
         rows.sort(key=lambda v: v["last_seen"] or "", reverse=True)
         return rows[:limit]
 
     def status(self) -> dict:
         by_region: dict[str, int] = {}
+        by_origin: dict[str, int] = {}
         ng = 0
+        # source lane -> {declared: bound for Nigeria now, arrived: seen in NG waters}
+        lanes = {r: {"declared": 0, "arrived": 0} for r in SOURCE_REGIONS}
         for v in self.vessels.values():
             by_region[v["region"]] = by_region.get(v["region"], 0) + 1
+            if v["origin_region"]:
+                by_origin[v["origin_region"]] = by_origin.get(v["origin_region"], 0) + 1
             if v["bound_for_nigeria"]:
                 ng += 1
+            src = v["origin_region"]
+            if src in lanes:
+                if v["bound_for_nigeria"]:
+                    lanes[src]["declared"] += 1
+                if v["arrived_nigeria"]:
+                    lanes[src]["arrived"] += 1
         return {
             "enabled": bool(settings.AISSTREAM_API_KEY),
             "connected": self.connected,
@@ -155,6 +211,14 @@ class ShippingStore:
             "messages_received": self.messages,
             "nigeria_bound": ng,
             "by_region": by_region,
+            "by_origin": by_origin,
+            # "Will they touch Nigeria?" answered per source lane, two ways.
+            "nigeria_watch": {
+                "china_declared": lanes[CHINA_REGION]["declared"],
+                "china_arrived": lanes[CHINA_REGION]["arrived"],
+                "turkey_declared": lanes[TURKEY_REGION]["declared"],
+                "turkey_arrived": lanes[TURKEY_REGION]["arrived"],
+            },
             "last_message_at": self.last_message_at.isoformat() if self.last_message_at else None,
             "error": self.error,
         }
@@ -181,7 +245,7 @@ async def _run() -> None:
                 store.connected = True
                 store.error = None
                 backoff = 3
-                logger.info("aisstream connected; monitoring China↔Nigeria lanes")
+                logger.info("aisstream connected; monitoring China & Turkey → Nigeria lanes")
                 while not _stop.is_set():
                     raw = await asyncio.wait_for(ws.recv(), timeout=60)
                     msg = json.loads(raw)

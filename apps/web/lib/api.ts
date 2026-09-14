@@ -395,6 +395,13 @@ export interface ShippingStatus {
   messages_received: number;
   nigeria_bound: number;
   by_region: Record<string, number>;
+  by_origin: Record<string, number>;
+  nigeria_watch: {
+    china_declared: number;
+    china_arrived: number;
+    turkey_declared: number;
+    turkey_arrived: number;
+  };
   last_message_at: string | null;
   error: string | null;
 }
@@ -407,8 +414,11 @@ export interface Vessel {
   cog: number | null;
   ship_type: number | null;
   destination: string | null;
+  eta: string | null;
   region: string;
+  origin_region: string | null;
   bound_for_nigeria: boolean;
+  arrived_nigeria: boolean;
   last_seen: string | null;
 }
 
