@@ -16,6 +16,7 @@ from app.models.organization import Branch, Employee  # noqa: F401
 from app.models.product import Product, ProductPriceHistory  # noqa: F401
 from app.models.provenance import DataImport, DataSource, Document  # noqa: F401
 from app.models.purchase import Purchase, PurchaseLine  # noqa: F401
+from app.models.shipping import VesselTrack  # noqa: F401
 from app.models.simulation import SimulationResult, SimulationRun  # noqa: F401
 from app.models.supplier import Supplier  # noqa: F401
 from app.models.system import Alert, AuditLog, Notification  # noqa: F401
@@ -46,6 +47,7 @@ __all__ = [
     "ExtractedInvoice",
     "SimulationRun",
     "SimulationResult",
+    "VesselTrack",
     "AuditLog",
     "Alert",
     "Notification",

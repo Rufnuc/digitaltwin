@@ -104,7 +104,7 @@ class ShippingStore:
                  "ship_type": None, "destination": None, "eta": None,
                  "region": "Unknown", "origin_region": None,
                  "bound_for_nigeria": False, "arrived_nigeria": False,
-                 "last_seen": None}
+                 "first_seen": _now().isoformat(), "last_seen": None}
             self.vessels[mmsi] = v
         elif name and name.strip():
             v["name"] = name.strip()
@@ -223,17 +223,68 @@ class ShippingStore:
             "error": self.error,
         }
 
+    # --- persistence (durable state across restarts) ---
+    _PERSISTED = ("mmsi", "name", "lat", "lon", "sog", "cog", "ship_type", "destination",
+                  "eta", "region", "origin_region", "bound_for_nigeria", "arrived_nigeria",
+                  "first_seen", "last_seen")
+
+    def load_from_db(self, session) -> int:
+        """Rehydrate the in-memory store from persisted vessel tracks (on startup)."""
+        from app.models.shipping import VesselTrack
+
+        rows = session.query(VesselTrack).all()
+        for r in rows:
+            self.vessels[r.mmsi] = {k: getattr(r, k) for k in self._PERSISTED}
+        return len(rows)
+
+    def flush_to_db(self, session) -> int:
+        """Upsert the current in-memory vessels into the durable table."""
+        from app.models.shipping import VesselTrack
+
+        snapshot = list(self.vessels.values())  # copy — the collector may mutate concurrently
+        for v in snapshot:
+            row = session.get(VesselTrack, v["mmsi"])
+            if row is None:
+                session.add(VesselTrack(**{k: v.get(k) for k in self._PERSISTED}))
+            else:
+                for k in self._PERSISTED:
+                    if k != "mmsi":
+                        setattr(row, k, v.get(k))
+        session.commit()
+        return len(snapshot)
+
 
 # Module-level singleton (the API process's live view).
 store = ShippingStore()
 _task: asyncio.Task | None = None
 _stop = asyncio.Event()
 
+_FLUSH_INTERVAL = 60  # seconds between persisting the store to the DB
+
+
+async def _flush() -> None:
+    """Persist the store off the event loop (sync DB work in a worker thread)."""
+    from app.db.session import SessionLocal
+
+    def _work() -> int:
+        db = SessionLocal()
+        try:
+            return store.flush_to_db(db)
+        finally:
+            db.close()
+
+    try:
+        n = await asyncio.get_running_loop().run_in_executor(None, _work)
+        logger.debug("shipping: persisted %s vessel tracks", n)
+    except Exception as e:  # noqa: BLE001 — persistence must never kill the collector
+        logger.warning("shipping: flush failed: %s", e)
+
 
 async def _run() -> None:
     import websockets  # optional dependency; only imported when shipping is enabled
 
     backoff = 3
+    last_flush = 0.0
     while not _stop.is_set():
         try:
             async with websockets.connect(AISSTREAM_URL, open_timeout=20) as ws:
@@ -256,6 +307,10 @@ async def _run() -> None:
                         store.update_position(md, body.get("PositionReport", {}))
                     elif mt == "ShipStaticData":
                         store.update_static(md, body.get("ShipStaticData", {}))
+                    now = asyncio.get_running_loop().time()
+                    if now - last_flush >= _FLUSH_INTERVAL:
+                        last_flush = now
+                        await _flush()
         except asyncio.CancelledError:
             break
         except Exception as e:  # noqa: BLE001 — keep the collector alive across errors
@@ -271,12 +326,27 @@ async def _run() -> None:
 
 
 def start() -> None:
-    """Start the background collector if a key is configured (idempotent)."""
+    """Start the background collector if a key is configured (idempotent).
+
+    Rehydrates durable vessel state first so origin/arrival history survives a
+    restart, then launches the live WebSocket collector.
+    """
     global _task
     if not settings.AISSTREAM_API_KEY or store.started:
         return
     _stop.clear()
     store.started = True
+    try:
+        from app.db.session import SessionLocal
+        db = SessionLocal()
+        try:
+            n = store.load_from_db(db)
+            if n:
+                logger.info("shipping: rehydrated %s vessel tracks from DB", n)
+        finally:
+            db.close()
+    except Exception as e:  # noqa: BLE001 — a cold start (no table yet) must not block
+        logger.warning("shipping: could not load persisted tracks: %s", e)
     _task = asyncio.create_task(_run())
 
 
@@ -284,3 +354,5 @@ async def stop() -> None:
     _stop.set()
     if _task:
         _task.cancel()
+    # Persist a final snapshot so nothing observed this session is lost.
+    await _flush()

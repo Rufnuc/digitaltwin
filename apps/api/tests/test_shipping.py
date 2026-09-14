@@ -82,6 +82,29 @@ def test_snapshot_filters():
     assert st["vessels_tracked"] == 2 and st["nigeria_bound"] == 1
 
 
+def test_persistence_round_trip(db):
+    """Vessel state persisted to the DB is rehydrated into a fresh store."""
+    s = ShippingStore()
+    s.update_position({"MMSI": 700, "ShipName": "PERSISTENT", "latitude": 36.8, "longitude": 34.6},
+                      {"Sog": 10})
+    s.update_static({"MMSI": 700}, {"Destination": "NGLOS"})
+    assert s.flush_to_db(db) == 1
+
+    fresh = ShippingStore()
+    assert fresh.load_from_db(db) == 1
+    v = fresh.vessels[700]
+    assert v["name"] == "PERSISTENT"
+    assert v["origin_region"] == "Turkey / Mediterranean"
+    assert v["bound_for_nigeria"] is True
+
+    # A second flush updates in place rather than duplicating.
+    s.update_position({"MMSI": 700, "latitude": 6.4, "longitude": 3.4}, {})
+    s.flush_to_db(db)
+    from app.models.shipping import VesselTrack
+    assert db.query(VesselTrack).count() == 1
+    assert db.get(VesselTrack, 700).arrived_nigeria is True
+
+
 def test_shipping_status_endpoint(client, auth_headers):
     r = client.get("/api/v1/shipping/status", headers=auth_headers("VIEWER"))
     assert r.status_code == 200

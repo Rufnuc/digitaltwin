@@ -35,3 +35,23 @@ def vessels(
                 "declared destination (intent, not a guarantee); 'arrived' means a China/Turkey-"
                 "origin vessel we tracked has since been seen in Nigerian waters.",
     }
+
+
+@router.get("/shipping/arrivals")
+def arrivals(
+    _: User = Depends(get_current_user),
+    origin: str | None = Query(None, description="filter by origin lane (e.g. 'China / Asia')"),
+    limit: int = Query(200, le=1000),
+) -> dict:
+    """Vessels tracked from China/Turkey that have since been observed in Nigerian
+    waters — a confirmed arrival, not a self-reported intent."""
+    items = [v for v in collector.store.snapshot(origin=origin, limit=1000)
+             if v["arrived_nigeria"]]
+    items.sort(key=lambda v: v["last_seen"] or "", reverse=True)
+    return {
+        "items": items[:limit],
+        "count": len(items),
+        "provenance": "REAL",
+        "note": "Confirmed arrivals: a vessel we first tracked in a source lane (China or "
+                "Turkey) has since reported a position inside Nigerian waters.",
+    }
