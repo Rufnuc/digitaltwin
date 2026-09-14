@@ -48,6 +48,7 @@ export default function ExpensesPage() {
         filters={filters}
         formFields={formFields}
         entityLabel="expense"
+        viewable
       />
     </div>
   );

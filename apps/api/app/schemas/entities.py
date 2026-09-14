@@ -95,6 +95,7 @@ class ProductBase(BaseModel):
     reorder_level: int | None = None
     reorder_quantity: int | None = None
     lead_time_days: int | None = None
+    image_url: str | None = None
     is_active: bool = True
 
 
@@ -114,6 +115,7 @@ class ProductUpdate(BaseModel):
     reorder_level: int | None = None
     reorder_quantity: int | None = None
     lead_time_days: int | None = None
+    image_url: str | None = None
     is_active: bool | None = None
 
 

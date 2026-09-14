@@ -2,6 +2,14 @@
 const BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 const V1 = `${BASE}/api/v1`;
 
+// Resolve an image_url for use in <img src>: app paths ("/api/v1/...") are made
+// absolute against the API host; external URLs pass through unchanged.
+export function imageSrc(url: string | null | undefined): string | null {
+  if (!url) return null;
+  if (url.startsWith("http://") || url.startsWith("https://")) return url;
+  return `${BASE}${url.startsWith("/") ? "" : "/"}${url}`;
+}
+
 const TOKEN_KEY = "dt_token";
 const ROLE_KEY = "dt_role";
 
@@ -140,6 +148,26 @@ export const api = {
     request<{ items: InvoiceVersionRow[] }>(`/invoices/${id}/versions`),
   invoiceUpdate: (id: number, body: unknown) =>
     request<InvoiceDetail>(`/invoices/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  uploadProductImage: async (id: number, file: File): Promise<{ image_url: string }> => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const res = await fetch(`${V1}/products/${id}/image`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${getToken() ?? ""}` },
+      body: fd,
+    });
+    if (!res.ok) {
+      let detail = res.statusText;
+      try {
+        const b = await res.json();
+        detail = typeof b.detail === "string" ? b.detail : detail;
+      } catch {
+        /* ignore */
+      }
+      throw new ApiError(res.status, detail);
+    }
+    return res.json();
+  },
   company: () => request<CompanyProfile>("/company"),
   updateCompany: (body: unknown) =>
     request<CompanyProfile>("/company", { method: "PUT", body: JSON.stringify(body) }),

@@ -23,6 +23,9 @@ from app.api.v1.endpoints import (
     simulations,
     stock,
 )
+from app.api.v1.endpoints import (
+    products as products_ep,
+)
 from app.core.enums import Role
 from app.models.customer import Customer
 from app.models.expense import Expense
@@ -52,6 +55,7 @@ api_router.include_router(shipping.router)
 api_router.include_router(notifications.router)
 api_router.include_router(stock.router)
 api_router.include_router(company.router)
+api_router.include_router(products_ep.router)
 api_router.include_router(meta.router)
 
 # Generic CRUD resources

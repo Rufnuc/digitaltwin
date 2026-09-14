@@ -34,6 +34,7 @@ export function ResourceTable<T extends Record<string, unknown>>({
   writeRole = "STAFF",
   deleteRole = "MANAGER",
   idKey = "id",
+  viewable = false,
 }: {
   resource: string;
   columns: Column<T>[];
@@ -45,6 +46,7 @@ export function ResourceTable<T extends Record<string, unknown>>({
   writeRole?: Role;
   deleteRole?: Role;
   idKey?: string;
+  viewable?: boolean;
 }) {
   const [items, setItems] = useState<T[]>([]);
   const [total, setTotal] = useState(0);
@@ -58,6 +60,7 @@ export function ResourceTable<T extends Record<string, unknown>>({
   const [refreshKey, setRefreshKey] = useState(0);
   const [editing, setEditing] = useState<T | null>(null);
   const [creating, setCreating] = useState(false);
+  const [viewing, setViewing] = useState<T | null>(null);
   const limit = 25;
 
   const role = getRole();
@@ -175,7 +178,11 @@ export function ResourceTable<T extends Record<string, unknown>>({
           </div>
         ) : (
           items.map((row, i) => (
-            <div key={i} className="rounded-lg border border-line bg-paper p-3">
+            <div
+              key={i}
+              onClick={viewable ? () => setViewing(row) : undefined}
+              className={`rounded-lg border border-line bg-paper p-3 ${viewable ? "cursor-pointer" : ""}`}
+            >
               {columns.map((c) => (
                 <div key={c.key} className="flex items-start justify-between gap-3 py-0.5 text-sm">
                   <span className="shrink-0 text-xs uppercase tracking-wide text-muted">
@@ -195,11 +202,11 @@ export function ResourceTable<T extends Record<string, unknown>>({
                   )}
                   {canWrite && (
                     <span className="flex gap-3 text-xs">
-                      <button onClick={() => setEditing(row)} className="text-muted underline">
+                      <button onClick={(e) => { e.stopPropagation(); setEditing(row); }} className="text-muted underline">
                         Edit
                       </button>
                       {canDelete && (
-                        <button onClick={() => remove(row)} className="text-red-700 underline">
+                        <button onClick={(e) => { e.stopPropagation(); remove(row); }} className="text-red-700 underline">
                           Delete
                         </button>
                       )}
@@ -253,7 +260,11 @@ export function ResourceTable<T extends Record<string, unknown>>({
               </tr>
             ) : (
               items.map((row, i) => (
-                <tr key={i} className="border-t border-line hover:bg-wash">
+                <tr
+                  key={i}
+                  onClick={viewable ? () => setViewing(row) : undefined}
+                  className={`border-t border-line hover:bg-wash ${viewable ? "cursor-pointer" : ""}`}
+                >
                   {columns.map((c) => (
                     <td key={c.key} className={`px-3 py-2 tabular-nums ${c.className ?? ""}`}>
                       {c.render ? c.render(row) : String(row[c.key] ?? "—")}
@@ -267,14 +278,14 @@ export function ResourceTable<T extends Record<string, unknown>>({
                   {canWrite && (
                     <td className="whitespace-nowrap px-3 py-2 text-right">
                       <button
-                        onClick={() => setEditing(row)}
+                        onClick={(e) => { e.stopPropagation(); setEditing(row); }}
                         className="text-xs text-muted underline hover:text-ink"
                       >
                         Edit
                       </button>
                       {canDelete && (
                         <button
-                          onClick={() => remove(row)}
+                          onClick={(e) => { e.stopPropagation(); remove(row); }}
                           className="ml-3 text-xs text-red-700 underline"
                         >
                           Delete
@@ -332,6 +343,59 @@ export function ResourceTable<T extends Record<string, unknown>>({
             setRefreshKey((k) => k + 1);
           }}
         />
+      )}
+      {viewable && viewing && (
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 sm:items-center"
+          onMouseDown={() => setViewing(null)}
+        >
+          <div
+            className="w-full max-w-md rounded-lg border border-line bg-paper p-4 shadow-xl"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-base font-semibold">
+                {String(viewing["name"] ?? viewing["code"] ?? entityLabel)}
+              </h2>
+              <button onClick={() => setViewing(null)} className="text-muted hover:text-ink">
+                ✕
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-2 text-sm">
+              {columns.map((c) => (
+                <div key={c.key}>
+                  <div className="text-[10px] uppercase tracking-wide text-muted">{c.header}</div>
+                  <div>{c.render ? c.render(viewing) : String(viewing[c.key] ?? "—")}</div>
+                </div>
+              ))}
+            </div>
+            {canWrite && (
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button
+                  onClick={() => {
+                    setEditing(viewing);
+                    setViewing(null);
+                  }}
+                  className="rounded border border-line px-3 py-1.5 text-sm hover:bg-wash"
+                >
+                  Edit
+                </button>
+                {canDelete && (
+                  <button
+                    onClick={() => {
+                      const row = viewing;
+                      setViewing(null);
+                      remove(row);
+                    }}
+                    className="rounded border border-red-500/40 px-3 py-1.5 text-sm text-red-700 hover:bg-red-500/10"
+                  >
+                    Delete
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );

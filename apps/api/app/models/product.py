@@ -29,6 +29,10 @@ class Product(Base, TimestampMixin, ProvenanceMixin):
     reorder_quantity: Mapped[int | None] = mapped_column(Integer, nullable=True)
     lead_time_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
+    # A reference image: either a pasted external URL, or an app path to an
+    # uploaded file (/api/v1/products/image/<key>).
+    image_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
 
 
