@@ -30,6 +30,7 @@ DEFAULT_ASSUMPTIONS = {
     "cost_passthrough": 0.4,   # fraction of inflation that flows into unit costs
     "fx_shock_pct": 10.0,      # assumed further NGN depreciation to stress-test
     "import_share": 0.6,       # fraction of COGS that is import-linked
+    "route_disruption_premium_pct": 6.0,  # freight/landed-cost premium when lanes disrupted
 }
 
 
@@ -148,7 +149,71 @@ def assess_fx(db: Session, assumptions: dict) -> dict | None:
     }
 
 
-ASSESSORS = {"inflation": assess_inflation, "fx": assess_fx}
+def assess_shipping(db: Session, assumptions: dict) -> dict | None:
+    """Shipping-lane disruptions (China/Turkey → Nigeria) as an import-cost risk.
+
+    FACT is the real disruption headlines already ingested into the market feed;
+    the freight/landed-cost premium they imply is an ASSUMPTION; the numbers are
+    MODEL OUTPUT. If there are no disruption headlines, there is no assessment —
+    nothing is invented.
+    """
+    from app.services.shipping.conditions import disruption_news
+
+    news = disruption_news(db)
+    items = news["natural"] + news["human"]
+    if not items:
+        return None
+
+    premium = float(assumptions.get(
+        "route_disruption_premium_pct", DEFAULT_ASSUMPTIONS["route_disruption_premium_pct"]))
+    import_share = float(assumptions.get("import_share", DEFAULT_ASSUMPTIONS["import_share"]))
+    unit_cost_pct = round(premium * import_share, 2)
+    sim = _simulate(db, Levers(unit_cost_pct=unit_cost_pct))
+
+    top = sorted(items, key=lambda d: d["relevance"] or 0, reverse=True)[:3]
+    lead = top[0]
+    return {
+        "driver": "shipping",
+        "title": "Shipping-lane disruption (China / Turkey → Nigeria)",
+        "fact": {
+            "indicator": "route_disruption_headlines",
+            "label": "Disruption headlines on the import lanes",
+            "value": len(items),
+            "unit": "articles",
+            # Match the shape the other assessors' facts expose (source/period/link).
+            "source": lead["source"],
+            "source_url": lead["source_url"],
+            "period": lead["published"],
+            "natural": len(news["natural"]),
+            "human": len(news["human"]),
+            "examples": [{"title": e["title"], "factors": e["factors"],
+                          "source": e["source"], "source_url": e["source_url"]} for e in top],
+        },
+        "assumptions": {
+            "route_disruption_premium_pct": premium,
+            "import_share": import_share,
+            "derived_unit_cost_change_percent": unit_cost_pct,
+            "note": "Assumes lane disruptions add a freight/landed-cost premium to the import-"
+                    "linked share of COGS. The headlines are the observed FACT; their cost effect "
+                    "is an assumption, not a measured figure.",
+        },
+        "possible_impact": {
+            "costs": "Freight rates, insurance and lead times rise when the lanes are disrupted.",
+            "products": "Imported parts cost more and arrive later, risking stock-outs.",
+            "customers": "Longer lead times or price rises to cover freight may dampen demand.",
+        },
+        "lever": {"field": "unit_cost_change_percent", "value": unit_cost_pct},
+        "simulation": sim,
+        "risk": "A Suez/Red Sea diversion, port congestion or weather closure lengthens the "
+                "China/Turkey → Nigeria voyage and lifts landed cost.",
+        "recommended_action": "Watch the shipping monitor's lane conditions; build buffer stock "
+                              "of high-runner parts and price in a freight contingency.",
+        "provenance": {"fact": DataOrigin.REAL.value, "mapping": DataOrigin.ASSUMPTION.value,
+                       "numbers": DataOrigin.MODEL_OUTPUT.value},
+    }
+
+
+ASSESSORS = {"inflation": assess_inflation, "fx": assess_fx, "shipping": assess_shipping}
 
 
 def _maybe_alert(db: Session, assessment: dict) -> bool:

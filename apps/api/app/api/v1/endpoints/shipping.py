@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Query
+from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user
+from app.api.deps import db_session, get_current_user
 from app.models.user import User
 from app.services.shipping import collector
+from app.services.shipping import conditions as lane_conditions
 
 router = APIRouter(tags=["shipping"])
 
@@ -35,6 +37,16 @@ def vessels(
                 "declared destination (intent, not a guarantee); 'arrived' means a China/Turkey-"
                 "origin vessel we tracked has since been seen in Nigerian waters.",
     }
+
+
+@router.get("/shipping/conditions")
+def conditions(
+    db: Session = Depends(db_session),
+    _: User = Depends(get_current_user),
+) -> dict:
+    """Natural and human factors on the source lanes: live AIS lane signals plus
+    real shipping-disruption news, split into weather and logistics factors."""
+    return lane_conditions.conditions(db)
 
 
 @router.get("/shipping/arrivals")

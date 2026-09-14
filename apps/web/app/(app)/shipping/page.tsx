@@ -1,12 +1,13 @@
 "use client";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
-import { api, type ShippingStatus, type Vessel } from "@/lib/api";
+import { api, type LaneConditions, type ShippingStatus, type Vessel } from "@/lib/api";
 import { PageHeader } from "@/components/Shell";
 import { Card, Kpi, ProvenanceBadge } from "@/components/ui";
 import { num } from "@/lib/format";
 
 export default function ShippingPage() {
   const [status, setStatus] = useState<ShippingStatus | null>(null);
+  const [conditions, setConditions] = useState<LaneConditions | null>(null);
   const [vessels, setVessels] = useState<Vessel[]>([]);
   const [region, setRegion] = useState("");
   const [watchOnly, setWatchOnly] = useState(false);
@@ -16,6 +17,9 @@ export default function ShippingPage() {
     try {
       const st = await api.shippingStatus();
       setStatus(st);
+      api.shippingConditions().then(setConditions).catch(() => {
+        /* conditions are supplementary — don't fail the whole page */
+      });
       const params =
         `?limit=300` + (region ? `&region=${encodeURIComponent(region)}` : "") +
         (watchOnly ? `&nigeria_watch=true` : "");
@@ -85,6 +89,8 @@ export default function ShippingPage() {
               />
             </div>
           </Card>
+
+          {conditions && <LaneConditionsCard c={conditions} />}
 
           <div className="mb-3 flex flex-wrap items-center gap-3">
             <select
@@ -263,6 +269,97 @@ function VesselBadges({ v }: { v: Vessel }) {
         <span className="rounded bg-green-600 px-1 py-0.5 text-[9px] text-white">→ NIGERIA</span>
       )}
     </>
+  );
+}
+
+// Natural + human factors on the source lanes: live AIS signals + real news.
+function LaneConditionsCard({ c }: { c: LaneConditions }) {
+  const factorList = (items: LaneConditions["disruptions"]["natural"], kind: string) => (
+    <div>
+      <div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted">
+        {kind} factors ({items.length})
+      </div>
+      {items.length === 0 ? (
+        <div className="text-xs text-muted">No {kind.toLowerCase()} disruptions in the feed.</div>
+      ) : (
+        <ul className="space-y-1.5">
+          {items.slice(0, 6).map((d, i) => (
+            <li key={i} className="text-sm">
+              <a
+                href={d.source_url ?? "#"}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline decoration-dotted"
+              >
+                {d.title}
+              </a>
+              <span className="ml-1 text-[11px] text-muted">
+                · {d.source} · {d.factors.join(", ")}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+
+  return (
+    <Card className="mb-4 p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <span className="text-sm font-medium">Lane conditions — natural &amp; human factors</span>
+        <ProvenanceBadge origin="REAL" />
+      </div>
+
+      {/* Observed AIS signals per lane. */}
+      <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {c.lanes.map((l) => {
+          // Descriptive only — a very high stationary share is worth noting, but ships
+          // routinely anchor/berth near ports, so we never assert "congestion".
+          const mostlyStill = l.stationary_share != null && l.stationary_share >= 0.85 && l.with_speed >= 10;
+          return (
+            <div key={l.lane} className="rounded-lg border border-line p-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium">{l.lane.split(" / ")[0]}</span>
+                {mostlyStill && (
+                  <span className="rounded bg-yellow-500/20 px-1.5 py-0.5 text-[10px] text-yellow-700 dark:text-yellow-300">
+                    mostly stationary
+                  </span>
+                )}
+              </div>
+              <div className="mt-1 grid grid-cols-3 gap-2 text-center">
+                <Metric label="tracked" value={num(l.vessels_tracked)} />
+                <Metric label="under way" value={num(l.moving)} />
+                <Metric
+                  label="median kn"
+                  value={l.median_speed_kn != null ? String(l.median_speed_kn) : "—"}
+                />
+              </div>
+              <div className="mt-1 text-[11px] text-muted">
+                {l.stationary} sitting still
+                {l.stationary_share != null ? ` (${Math.round(l.stationary_share * 100)}%)` : ""} —
+                anchored, berthed or waiting
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Real disruption news split into natural / human factors. */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        {factorList(c.disruptions.natural, "Natural")}
+        {factorList(c.disruptions.human, "Human")}
+      </div>
+      <div className="mt-3 border-t border-line pt-2 text-[11px] text-muted">{c.note}</div>
+    </Card>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded bg-wash py-1">
+      <div className="text-sm font-semibold tabular-nums">{value}</div>
+      <div className="text-[10px] uppercase text-muted">{label}</div>
+    </div>
   );
 }
 

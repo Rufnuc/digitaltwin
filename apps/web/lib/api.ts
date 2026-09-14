@@ -197,6 +197,9 @@ export const api = {
   // ---- Shipping monitor (aisstream) ----
   shippingStatus: () => request<ShippingStatus>("/shipping/status"),
   shippingVessels: (params = "") => request<{ items: Vessel[]; note: string }>(`/shipping/vessels${params}`),
+  shippingConditions: () => request<LaneConditions>("/shipping/conditions"),
+  shippingArrivals: () =>
+    request<{ items: Vessel[]; count: number; note: string }>("/shipping/arrivals"),
 
   // ---- Phase 2: analytics ----
   analyticsCustomers: () => request<CustomerIntel>("/analytics/customers"),
@@ -404,6 +407,29 @@ export interface ShippingStatus {
   };
   last_message_at: string | null;
   error: string | null;
+}
+export interface LaneSignal {
+  lane: string;
+  vessels_tracked: number;
+  with_speed: number;
+  moving: number;
+  stationary: number;
+  stationary_share: number | null;
+  median_speed_kn: number | null;
+}
+export interface DisruptionItem {
+  title: string;
+  source: string;
+  source_url: string | null;
+  published: string;
+  relevance: number | null;
+  factors: string[];
+}
+export interface LaneConditions {
+  lanes: LaneSignal[];
+  disruptions: { natural: DisruptionItem[]; human: DisruptionItem[] };
+  counts: { natural: number; human: number };
+  note: string;
 }
 export interface Vessel {
   mmsi: number;
