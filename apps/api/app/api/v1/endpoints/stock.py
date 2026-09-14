@@ -33,6 +33,22 @@ class ReceiveRequest(BaseModel):
     note: str | None = None
 
 
+class BatchLine(BaseModel):
+    product_id: int
+    quantity: int = Field(gt=0)
+    unit_cost: float | None = None
+    note: str | None = None
+
+
+class BatchReceiveRequest(BaseModel):
+    warehouse_id: int
+    supplier_id: int | None = None
+    received_date: date | None = None
+    shipment_ref: str | None = None
+    vessel_mmsi: int | None = None
+    lines: list[BatchLine] = Field(min_length=1)
+
+
 class TransferRequest(BaseModel):
     product_id: int
     from_warehouse_id: int
@@ -64,6 +80,26 @@ def receive(
     audit.record(db, action=AuditAction.CREATE, user_id=user.id, entity_type="stock_lot",
                  entity_id=lot.id, summary=f"received {payload.quantity} into {lot.lot_code}")
     return stock.lot_detail(db, lot.id)
+
+
+@router.post("/stock/receive-batch")
+def receive_batch(
+    payload: BatchReceiveRequest,
+    db: Session = Depends(db_session),
+    user: User = Depends(require_role(Role.STAFF)),
+) -> dict:
+    """Receive a whole delivery from one supplier in a single batch."""
+    lots = _guard(
+        stock.receive_batch, db, warehouse_id=payload.warehouse_id,
+        supplier_id=payload.supplier_id, received_date=payload.received_date,
+        shipment_ref=payload.shipment_ref, vessel_mmsi=payload.vessel_mmsi,
+        lines=[ln.model_dump() for ln in payload.lines], user_id=user.id,
+    )
+    audit.record(db, action=AuditAction.CREATE, user_id=user.id, entity_type="stock_batch",
+                 summary=f"batch received {len(lots)} lots into warehouse {payload.warehouse_id}")
+    return {"received": len(lots),
+            "lots": [{"id": lot.id, "lot_code": lot.lot_code, "product_id": lot.product_id,
+                      "quantity": lot.quantity_received} for lot in lots]}
 
 
 @router.post("/stock/transfer")

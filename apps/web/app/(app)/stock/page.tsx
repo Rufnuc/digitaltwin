@@ -4,6 +4,7 @@ import { PageHeader } from "@/components/Shell";
 import { Card, ProvenanceBadge } from "@/components/ui";
 import { EntityForm, type FormField } from "@/components/EntityForm";
 import { InventoryTabs } from "@/components/InventoryTabs";
+import { BatchReceiveForm } from "@/components/BatchReceiveForm";
 import { api, getRole, type StockLot, type StockLotDetail } from "@/lib/api";
 import { money2, num } from "@/lib/format";
 import { roleAtLeast } from "@/lib/roles";
@@ -18,7 +19,8 @@ export default function StockPage() {
   const [warehouseId, setWarehouseId] = useState("");
   const [inStockOnly, setInStockOnly] = useState(true);
   const [detail, setDetail] = useState<StockLotDetail | null>(null);
-  const [modal, setModal] = useState<null | "receive" | "transfer">(null);
+  const [modal, setModal] = useState<null | "receive" | "transfer" | "batch">(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [adjustLot, setAdjustLot] = useState<StockLot | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -104,6 +106,14 @@ export default function StockPage() {
       />
       <InventoryTabs active="stock" />
 
+      {notice && (
+        <div className="mb-3 flex items-center justify-between rounded border border-green-500/30 bg-green-500/15 px-3 py-2 text-sm text-green-700 dark:text-green-300">
+          <span>✓ {notice}</span>
+          <button onClick={() => setNotice(null)} className="text-xs underline">
+            dismiss
+          </button>
+        </div>
+      )}
       {error && <div className="mb-3 text-sm text-red-700">Error: {error}</div>}
 
       <div className="mb-3 flex flex-wrap items-center gap-3">
@@ -130,6 +140,12 @@ export default function StockPage() {
               className="rounded bg-ink px-3 py-1.5 text-sm font-medium text-paper"
             >
               + Receive stock
+            </button>
+            <button
+              onClick={() => setModal("batch")}
+              className="rounded border border-line px-3 py-1.5 text-sm hover:bg-wash"
+            >
+              Batch receive
             </button>
             <button
               onClick={() => setModal("transfer")}
@@ -247,6 +263,19 @@ export default function StockPage() {
           onSubmit={async (v) => {
             await api.stockTransfer(coerceIds(v));
             setModal(null);
+            load();
+          }}
+        />
+      )}
+      {modal === "batch" && (
+        <BatchReceiveForm
+          warehouses={warehouses}
+          suppliers={suppliers}
+          products={products}
+          onClose={() => setModal(null)}
+          onDone={(msg) => {
+            setModal(null);
+            setNotice(msg);
             load();
           }}
         />

@@ -31,8 +31,8 @@ const formFields: FormField[] = [
     label: "Type",
     type: "select",
     options: [
-      { value: "warehouse", label: "Warehouse" },
-      { value: "shop", label: "Shop / Counter" },
+      { value: "warehouse", label: "Warehouse (storage)" },
+      { value: "shop", label: "Point of sale (Home / Office)" },
       { value: "transit", label: "Transit" },
     ],
   },

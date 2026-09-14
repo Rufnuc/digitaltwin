@@ -99,7 +99,8 @@ class ProductBase(BaseModel):
 
 
 class ProductCreate(ProductBase):
-    pass
+    # Code is auto-generated (PRD-####) when omitted.
+    code: str | None = None
 
 
 class ProductUpdate(BaseModel):

@@ -13,6 +13,7 @@ interface Ref {
   id: number;
   name: string;
   code: string;
+  type?: string;
 }
 interface CustomerRef extends Ref {
   location?: string | null;
@@ -35,9 +36,10 @@ export default function SellPage() {
   const [products, setProducts] = useState<Ref[]>([]);
   const [suppliers, setSuppliers] = useState<Ref[]>([]);
 
-  const [invoiceNumber, setInvoiceNumber] = useState(`INV-${Date.now().toString().slice(-6)}`);
+  const [invoiceNumber] = useState(`INV-${Date.now().toString().slice(-6)}`);
   const [invoiceDate, setInvoiceDate] = useState(todayIso());
   const [customerId, setCustomerId] = useState("");
+  const [customerQuery, setCustomerQuery] = useState("");
   const [warehouseId, setWarehouseId] = useState("");
   const [lines, setLines] = useState<Line[]>([{ key: 1, product_id: "", quantity: "1", unit_price: "" }]);
   const [tax, setTax] = useState("0");
@@ -73,6 +75,11 @@ export default function SellPage() {
   const productName = (id: string) => products.find((p) => String(p.id) === id);
   const selectedCustomer = customers.find((c) => String(c.id) === customerId);
   const wid = Number(warehouseId) || 0;
+  // Points of sale are shop-type locations (Home / Office). Stock is transferred
+  // here from a warehouse before it is sold, so we sell from these, not a warehouse.
+  const shops = warehouses.filter((w) => w.type === "shop");
+  const posLocations = shops.length > 0 ? shops : warehouses;
+  const custLabel = (c: CustomerRef) => `${c.code} — ${c.name}`;
 
   function availFor(productId: string): number | null {
     const pid = Number(productId);
@@ -98,7 +105,7 @@ export default function SellPage() {
 
   // Validation: every line needs a product + qty, and qty must be in stock.
   const problems: string[] = [];
-  if (!warehouseId) problems.push("Choose a warehouse to sell from.");
+  if (!warehouseId) problems.push("Choose where to sell from (Home / Office).");
   lines.forEach((l, i) => {
     if (!l.product_id) return; // empty rows ignored on submit
     const q = Number(l.quantity);
@@ -110,15 +117,31 @@ export default function SellPage() {
   const validLines = lines.filter((l) => l.product_id && Number(l.quantity) > 0);
   const canSubmit = canSell && warehouseId && validLines.length > 0 && problems.length === 0 && !busy;
 
+  // Resolve the customer field to an id: an exact match uses it; a typed name that
+  // matches nothing creates a new customer (auto-coded) so you can bill on the fly.
+  async function resolveCustomerId(): Promise<number | null> {
+    if (customerId) return Number(customerId);
+    const query = customerQuery.trim();
+    if (!query) return null;
+    const match = customers.find(
+      (c) => custLabel(c) === query || c.name.toLowerCase() === query.toLowerCase(),
+    );
+    if (match) return match.id;
+    const created = await api.createResource<CustomerRef>("customers", { name: query });
+    setCustomers((cs) => [...cs, created]);
+    return created.id;
+  }
+
   async function submit() {
     setError(null);
     setBusy(true);
     try {
+      const resolvedCustomer = await resolveCustomerId();
       const res = await api.invoiceSell({
         invoice_number: invoiceNumber,
         invoice_date: invoiceDate,
         warehouse_id: Number(warehouseId),
-        customer_id: customerId ? Number(customerId) : null,
+        customer_id: resolvedCustomer,
         currency: "NGN",
         tax: Number(tax) || 0,
         discount: Number(discount) || 0,
@@ -129,7 +152,7 @@ export default function SellPage() {
         })),
       });
       const inv = res.invoice as { invoice_number?: string };
-      setDone(`Sale recorded: ${inv.invoice_number}. Stock drawn from the warehouse and each unit traced to the buyer.`);
+      setDone(`Sale recorded: ${inv.invoice_number}. Stock drawn from the sale location and each unit traced to the buyer.`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Sale failed");
     } finally {
@@ -195,23 +218,32 @@ export default function SellPage() {
         <div className="space-y-4">
           <Card className="p-4">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <Labelled label="Invoice number">
-                <input value={invoiceNumber} onChange={(e) => setInvoiceNumber(e.target.value)} className={inp} />
+              <Labelled label="Invoice number (auto)">
+                <input value={invoiceNumber} readOnly className={`${inp} text-muted`} />
               </Labelled>
               <Labelled label="Date">
                 <input type="date" value={invoiceDate} onChange={(e) => setInvoiceDate(e.target.value)} className={inp} />
               </Labelled>
-              <Labelled label="Customer">
-                <select value={customerId} onChange={(e) => setCustomerId(e.target.value)} className={inp}>
-                  <option value="">Walk-in / none</option>
+              <Labelled label="Customer (search or type a new name)">
+                <input
+                  list="customer-list"
+                  value={customerQuery}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setCustomerQuery(val);
+                    const match = customers.find((c) => custLabel(c) === val);
+                    setCustomerId(match ? String(match.id) : "");
+                  }}
+                  placeholder="Walk-in, or search / type a customer"
+                  className={inp}
+                />
+                <datalist id="customer-list">
                   {customers.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.code} — {c.name}
-                    </option>
+                    <option key={c.id} value={custLabel(c)} />
                   ))}
-                </select>
+                </datalist>
               </Labelled>
-              <Labelled label="Sell from warehouse">
+              <Labelled label="Sell from (Home / Office)">
                 <select
                   value={warehouseId}
                   onChange={(e) => {
@@ -221,7 +253,7 @@ export default function SellPage() {
                   className={inp}
                 >
                   <option value="">Choose…</option>
-                  {warehouses.map((w) => (
+                  {posLocations.map((w) => (
                     <option key={w.id} value={w.id}>
                       {w.code} — {w.name}
                     </option>
@@ -229,6 +261,12 @@ export default function SellPage() {
                 </select>
               </Labelled>
             </div>
+            {shops.length === 0 && (
+              <div className="mt-2 text-[11px] text-muted">
+                Tip: mark your Home and Office as “Point of sale” locations under Inventory →
+                Warehouses, then transfer stock to them to sell.
+              </div>
+            )}
             {selectedCustomer && (
               <div className="mt-2 text-[11px] text-muted">
                 {selectedCustomer.customer_type ?? ""}

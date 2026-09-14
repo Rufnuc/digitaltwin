@@ -87,6 +87,7 @@ api_router.include_router(
         entity_type="product",
         tags=["products"],
         search_fields=("name", "code", "part_number", "category"),
+        auto_code_prefix="PRD-",
     ),
     prefix="/products",
 )

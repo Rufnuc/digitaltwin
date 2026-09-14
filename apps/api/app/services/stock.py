@@ -83,6 +83,37 @@ def receive_stock(
     return lot
 
 
+def receive_batch(
+    db: Session, *, warehouse_id: int, lines: list[dict], supplier_id: int | None = None,
+    received_date: date | None = None, shipment_ref: str | None = None,
+    vessel_mmsi: int | None = None, user_id: int | None = None,
+) -> list[StockLot]:
+    """Receive several products in one delivery (one supplier / shipment) — a lot per
+    line, all committed together."""
+    if not lines:
+        raise StockError("provide at least one line to receive")
+    _require(db, Warehouse, warehouse_id, "warehouse")
+    lots = []
+    for i, ln in enumerate(lines):
+        try:
+            lot = receive_stock(
+                db, product_id=int(ln["product_id"]), warehouse_id=warehouse_id,
+                quantity=int(ln["quantity"]),
+                unit_cost=ln.get("unit_cost"),
+                supplier_id=supplier_id, received_date=received_date,
+                shipment_ref=shipment_ref, vessel_mmsi=vessel_mmsi,
+                note=ln.get("note"), user_id=user_id, commit=False,
+            )
+        except (KeyError, TypeError, ValueError) as e:
+            db.rollback()
+            raise StockError(f"line {i + 1}: {e}") from e
+        lots.append(lot)
+    db.commit()
+    for lot in lots:
+        db.refresh(lot)
+    return lots
+
+
 def _open_lots(db: Session, product_id: int, warehouse_id: int) -> list[StockLot]:
     """IN_STOCK lots for a product in a warehouse, oldest first (FIFO)."""
     return list(db.scalars(

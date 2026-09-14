@@ -118,6 +118,11 @@ export const api = {
     ),
   stockReceive: (body: unknown) =>
     request<StockLotDetail>("/stock/receive", { method: "POST", body: JSON.stringify(body) }),
+  stockReceiveBatch: (body: unknown) =>
+    request<{ received: number; lots: { lot_code: string; product_id: number; quantity: number }[] }>(
+      "/stock/receive-batch",
+      { method: "POST", body: JSON.stringify(body) },
+    ),
   stockTransfer: (body: unknown) =>
     request<Record<string, unknown>>("/stock/transfer", {
       method: "POST",
