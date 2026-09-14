@@ -55,6 +55,12 @@ class Settings(BaseSettings):
     # China→Nigeria trade lanes; empty disables the feature.
     AISSTREAM_API_KEY: str = ""
 
+    # Quant inventory & decision-support module (forecasting, reorder, risk). Off by
+    # default; gates the /quant routes and quant assistant tools (spec v4 §15).
+    QUANT_INVENTORY_ENABLED: bool = True
+    # Config version stamped onto quant results for reproducibility / replay.
+    QUANT_CONFIG_VERSION: str = "1.0.0"
+
     # CORS
     CORS_ORIGINS: list[str] = Field(
         default_factory=lambda: ["http://localhost:3000", "http://127.0.0.1:3000"]
