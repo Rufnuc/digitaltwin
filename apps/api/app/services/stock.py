@@ -248,6 +248,7 @@ def _name_maps(db: Session) -> dict:
     return {
         "warehouse": dict(db.execute(select(Warehouse.id, Warehouse.name)).all()),
         "product": dict(db.execute(select(Product.id, Product.name)).all()),
+        "product_image": dict(db.execute(select(Product.id, Product.image_url)).all()),
         "customer": dict(db.execute(select(Customer.id, Customer.name)).all()),
         "supplier": dict(db.execute(select(Supplier.id, Supplier.name)).all()),
     }
@@ -276,6 +277,7 @@ def _lot_dict(lot: StockLot, names: dict, movements: list | None = None) -> dict
         "lot_code": lot.lot_code,
         "product_id": lot.product_id,
         "product": names["product"].get(lot.product_id),
+        "product_image": names["product_image"].get(lot.product_id),
         "warehouse_id": lot.warehouse_id,
         "warehouse": names["warehouse"].get(lot.warehouse_id),
         "supplier": names["supplier"].get(lot.supplier_id) if lot.supplier_id else None,
@@ -344,8 +346,15 @@ def lot_detail(db: Session, lot_id: int) -> dict | None:
     buyers = sorted({names["customer"].get(m.customer_id) for m in moves
                      if m.movement_type == MovementType.SALE and m.customer_id}
                     - {None})
+    # A running balance after each movement — the lot's state at every "version".
+    move_dicts = []
+    balance = 0
+    for m in moves:
+        balance += m.quantity
+        move_dicts.append({**_movement_dict(m, names), "version": len(move_dicts) + 1,
+                           "balance_after": balance})
     return {
-        **_lot_dict(lot, names, [_movement_dict(m, names) for m in moves]),
+        **_lot_dict(lot, names, move_dicts),
         "sold_to": buyers,
         "invoices": sorted({m.invoice_id for m in moves if m.invoice_id}),
         "vessel": _vessel_snapshot(lot.vessel_mmsi),

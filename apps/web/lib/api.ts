@@ -540,6 +540,7 @@ export interface StockLot {
   lot_code: string;
   product_id: number;
   product: string | null;
+  product_image: string | null;
   warehouse_id: number;
   warehouse: string | null;
   supplier: string | null;
@@ -574,6 +575,8 @@ export interface StockMovement {
   counterparty_warehouse: string | null;
   unit_cost: number | null;
   note: string | null;
+  version?: number;
+  balance_after?: number;
 }
 export interface StockLotDetail extends StockLot {
   movements: StockMovement[];

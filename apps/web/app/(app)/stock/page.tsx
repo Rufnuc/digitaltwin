@@ -1,11 +1,11 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { PageHeader } from "@/components/Shell";
 import { Card, ProvenanceBadge } from "@/components/ui";
 import { EntityForm, type FormField } from "@/components/EntityForm";
 import { InventoryTabs } from "@/components/InventoryTabs";
 import { BatchReceiveForm } from "@/components/BatchReceiveForm";
-import { api, getRole, type StockLot, type StockLotDetail } from "@/lib/api";
+import { api, getRole, imageSrc, type StockLot, type StockLotDetail } from "@/lib/api";
 import { money2, num } from "@/lib/format";
 import { roleAtLeast } from "@/lib/roles";
 
@@ -174,7 +174,15 @@ export default function StockPage() {
                   <span className="font-mono text-sm font-medium">{l.lot_code}</span>
                   <StatusChip status={l.status} />
                 </div>
-                <LotRow label="Product" value={l.product} />
+                <LotRow
+                  label="Product"
+                  value={
+                    <span className="flex items-center justify-end gap-2">
+                      <ProductThumb url={l.product_image} />
+                      {l.product}
+                    </span>
+                  }
+                />
                 <LotRow label="Warehouse" value={l.warehouse} />
                 <LotRow label="Received" value={l.received_date} />
                 <LotRow label="Remaining" value={`${num(l.quantity_remaining)} / ${num(l.quantity_received)}`} />
@@ -213,7 +221,12 @@ export default function StockPage() {
                 lots.map((l) => (
                   <tr key={l.id} className="border-t border-line hover:bg-wash">
                     <td className="px-3 py-2 font-mono text-xs">{l.lot_code}</td>
-                    <td className="px-3 py-2">{l.product}</td>
+                    <td className="px-3 py-2">
+                      <span className="flex items-center gap-2">
+                        <ProductThumb url={l.product_image} />
+                        {l.product}
+                      </span>
+                    </td>
                     <td className="px-3 py-2">{l.warehouse}</td>
                     <td className="px-3 py-2 tabular-nums">{l.received_date}</td>
                     <td className="px-3 py-2 tabular-nums">
@@ -303,13 +316,20 @@ export default function StockPage() {
   );
 }
 
-function LotRow({ label, value }: { label: string; value: string | null }) {
+function LotRow({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="flex items-start justify-between gap-3 py-0.5 text-sm">
       <span className="shrink-0 text-xs uppercase tracking-wide text-muted">{label}</span>
       <span className="min-w-0 break-words text-right tabular-nums">{value ?? "—"}</span>
     </div>
   );
+}
+
+function ProductThumb({ url }: { url: string | null }) {
+  const src = imageSrc(url);
+  if (!src) return <span className="text-line">🧩</span>;
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img src={src} alt="" className="h-6 w-6 shrink-0 rounded border border-line object-cover" />;
 }
 
 function StatusChip({ status }: { status: string }) {
@@ -386,15 +406,27 @@ function TraceDrawer({ detail, onClose }: { detail: StockLotDetail; onClose: () 
           </div>
         )}
 
-        <div className="text-xs font-medium uppercase tracking-wide text-muted">Movement history</div>
+        <div className="text-xs font-medium uppercase tracking-wide text-muted">
+          Version history — every change to this marker
+        </div>
         <ol className="mt-2 space-y-2">
           {detail.movements.map((m) => (
             <li key={m.id} className="rounded border border-line p-2 text-sm">
               <div className="flex items-center justify-between">
-                <span className="font-medium">{m.type}</span>
-                <span className={`tabular-nums ${m.quantity < 0 ? "text-red-700" : "text-green-700"}`}>
-                  {m.quantity > 0 ? "+" : ""}
-                  {m.quantity}
+                <span className="font-medium">
+                  {m.version != null && (
+                    <span className="mr-2 rounded bg-muted/15 px-1 text-[10px] text-muted">v{m.version}</span>
+                  )}
+                  {m.type}
+                </span>
+                <span className="flex items-center gap-2">
+                  <span className={`tabular-nums ${m.quantity < 0 ? "text-red-700" : "text-green-700"}`}>
+                    {m.quantity > 0 ? "+" : ""}
+                    {m.quantity}
+                  </span>
+                  {m.balance_after != null && (
+                    <span className="tabular-nums text-[11px] text-muted">→ {m.balance_after}</span>
+                  )}
                 </span>
               </div>
               <div className="text-[11px] text-muted">
