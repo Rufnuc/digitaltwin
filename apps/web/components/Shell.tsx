@@ -17,6 +17,7 @@ const NAV: { href: string; label: string; minRole?: Role }[] = [
   { href: "/products", label: "Products" },
   { href: "/suppliers", label: "Suppliers" },
   { href: "/invoices", label: "Invoices" },
+  { href: "/sell", label: "New Sale", minRole: "STAFF" },
   { href: "/inventory", label: "Inventory" },
   { href: "/warehouses", label: "Warehouses", minRole: "MANAGER" },
   { href: "/stock", label: "Stock & Markers", minRole: "STAFF" },
