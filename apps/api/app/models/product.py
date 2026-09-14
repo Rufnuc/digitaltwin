@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date
 
 from sqlalchemy import Boolean, Date, ForeignKey, Integer, String
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, ProvenanceMixin, TimestampMixin
 from app.models.organization import MONEY
@@ -29,11 +29,33 @@ class Product(Base, TimestampMixin, ProvenanceMixin):
     reorder_quantity: Mapped[int | None] = mapped_column(Integer, nullable=True)
     lead_time_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
-    # A reference image: either a pasted external URL, or an app path to an
-    # uploaded file (/api/v1/products/image/<key>).
+    # The primary reference image (mirrors the primary row in product_images) so
+    # list/card views need only one column. Either a pasted external URL or an app
+    # path to an uploaded file (/api/v1/products/image/<key>).
     image_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
 
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+
+    images: Mapped[list[ProductImage]] = relationship(
+        back_populates="product", cascade="all, delete-orphan",
+        order_by="ProductImage.sort_order",
+    )
+
+
+class ProductImage(Base, TimestampMixin):
+    """One image for a product — a gallery, with an ordered list and one primary."""
+
+    __tablename__ = "product_images"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    product_id: Mapped[int] = mapped_column(
+        ForeignKey("products.id"), index=True, nullable=False
+    )
+    url: Mapped[str] = mapped_column(String(1024), nullable=False)
+    is_primary: Mapped[bool] = mapped_column(Boolean, default=False)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+
+    product: Mapped[Product] = relationship(back_populates="images")
 
 
 class ProductPriceHistory(Base, TimestampMixin):

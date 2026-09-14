@@ -14,7 +14,7 @@ from app.models.extraction import ExtractedInvoice  # noqa: F401
 from app.models.inventory import Inventory  # noqa: F401
 from app.models.invoice import Invoice, InvoiceLine, InvoiceVersion  # noqa: F401
 from app.models.organization import Branch, Employee  # noqa: F401
-from app.models.product import Product, ProductPriceHistory  # noqa: F401
+from app.models.product import Product, ProductImage, ProductPriceHistory  # noqa: F401
 from app.models.provenance import DataImport, DataSource, Document  # noqa: F401
 from app.models.purchase import Purchase, PurchaseLine  # noqa: F401
 from app.models.shipping import VesselTrack  # noqa: F401
@@ -31,6 +31,7 @@ __all__ = [
     "Customer",
     "Supplier",
     "Product",
+    "ProductImage",
     "ProductPriceHistory",
     "Invoice",
     "InvoiceLine",

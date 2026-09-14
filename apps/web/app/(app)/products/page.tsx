@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { PageHeader } from "@/components/Shell";
 import { Card } from "@/components/ui";
 import { EntityForm, type FormField } from "@/components/EntityForm";
-import { api, getRole, imageSrc } from "@/lib/api";
+import { api, getRole, imageSrc, type ProductImage as PImage } from "@/lib/api";
 import { money2 } from "@/lib/format";
 import { roleAtLeast } from "@/lib/roles";
 
@@ -34,7 +34,6 @@ const formFields: FormField[] = [
   { key: "selling_price", label: "Selling price (₦)", type: "number", step: "0.01" },
   { key: "reorder_level", label: "Reorder level", type: "number" },
   { key: "lead_time_days", label: "Lead time (days)", type: "number" },
-  { key: "image_url", label: "Image URL (or upload in the product view)", placeholder: "https://…" },
 ];
 
 export default function ProductsPage() {
@@ -147,18 +146,24 @@ function ProductModal({
   canWrite: boolean;
 }) {
   const [p, setP] = useState<Product | null>(null);
+  const [images, setImages] = useState<PImage[]>([]);
+  const [sel, setSel] = useState(0);
   const [editing, setEditing] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [urlInput, setUrlInput] = useState("");
   const [error, setError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const canDelete = roleAtLeast(getRole(), "MANAGER");
 
   const reload = useCallback(async () => {
-    const r = await api.list<Product>("products", `?limit=1&id=${id}`);
-    // The generic list filters by any column; fall back to fetching all if needed.
-    const found = r.items.find((x) => x.id === id) ?? null;
-    setP(found);
+    const [r, imgs] = await Promise.all([
+      api.list<Product>("products", `?limit=1&id=${id}`),
+      api.productImages(id).catch(() => ({ items: [] as PImage[] })),
+    ]);
+    setP(r.items.find((x) => x.id === id) ?? null);
+    setImages(imgs.items);
+    setSel((s) => Math.min(s, Math.max(0, imgs.items.length - 1)));
   }, [id]);
 
   useEffect(() => {
@@ -179,6 +184,35 @@ function ProductModal({
     }
   }
 
+  async function addUrl() {
+    const u = urlInput.trim();
+    if (!u) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.addProductImageUrl(id, u);
+      setUrlInput("");
+      await reload();
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Add image failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function makePrimary(imageId: number) {
+    await api.setPrimaryImage(id, imageId);
+    await reload();
+    onChanged();
+  }
+
+  async function removeImage(imageId: number) {
+    await api.deleteProductImage(id, imageId);
+    await reload();
+    onChanged();
+  }
+
   async function remove() {
     if (!p || !window.confirm(`Delete product "${p.name}"? This cannot be undone.`)) return;
     try {
@@ -190,7 +224,8 @@ function ProductModal({
     }
   }
 
-  const src = imageSrc(p?.image_url);
+  const current = images[sel];
+  const src = imageSrc(current?.url ?? p?.image_url);
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 sm:items-center" onMouseDown={onClose}>
@@ -204,14 +239,56 @@ function ProductModal({
               <button onClick={onClose} className="text-muted hover:text-ink">✕</button>
             </div>
 
-            <div className="mb-3 flex h-48 items-center justify-center rounded-lg border border-line bg-wash">
+            <div className="mb-2 flex h-48 items-center justify-center rounded-lg border border-line bg-wash">
               {src ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={src} alt={p.name} className="h-full w-full cursor-zoom-in object-contain" onClick={() => setFullscreen(true)} />
               ) : (
-                <span className="text-sm text-muted">No image yet</span>
+                <span className="text-sm text-muted">No images yet</span>
               )}
             </div>
+
+            {/* Thumbnail strip */}
+            {images.length > 0 && (
+              <div className="mb-3 flex flex-wrap gap-2">
+                {images.map((img, i) => (
+                  <div key={img.id} className="relative">
+                    <button
+                      onClick={() => setSel(i)}
+                      className={`h-12 w-12 overflow-hidden rounded border ${i === sel ? "border-ink" : "border-line"}`}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={imageSrc(img.url)!} alt="" className="h-full w-full object-cover" />
+                    </button>
+                    {img.is_primary && (
+                      <span className="absolute -left-1 -top-1 rounded-full bg-ink px-1 text-[8px] text-paper">★</span>
+                    )}
+                    {canWrite && (
+                      <div className="mt-0.5 flex justify-center gap-1 text-[9px]">
+                        {!img.is_primary && (
+                          <button onClick={() => makePrimary(img.id)} className="text-muted underline" title="Set as primary">★</button>
+                        )}
+                        <button onClick={() => removeImage(img.id)} className="text-red-700 underline" title="Remove">✕</button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {canWrite && (
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                <input
+                  value={urlInput}
+                  onChange={(e) => setUrlInput(e.target.value)}
+                  placeholder="Paste an image URL…"
+                  className="min-w-0 flex-1 rounded border border-line bg-paper px-2 py-1 text-xs outline-none focus:border-ink"
+                />
+                <button onClick={addUrl} disabled={busy || !urlInput.trim()} className="rounded border border-line px-2 py-1 text-xs hover:bg-wash disabled:opacity-50">
+                  Add URL
+                </button>
+              </div>
+            )}
 
             <div className="mb-3 grid grid-cols-2 gap-2 text-sm">
               <D label="Code" value={p.code} />

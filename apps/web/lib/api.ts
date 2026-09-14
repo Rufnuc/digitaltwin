@@ -148,7 +148,15 @@ export const api = {
     request<{ items: InvoiceVersionRow[] }>(`/invoices/${id}/versions`),
   invoiceUpdate: (id: number, body: unknown) =>
     request<InvoiceDetail>(`/invoices/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
-  uploadProductImage: async (id: number, file: File): Promise<{ image_url: string }> => {
+  productImages: (id: number) =>
+    request<{ items: ProductImage[] }>(`/products/${id}/images`),
+  addProductImageUrl: (id: number, url: string) =>
+    request<ProductImage>(`/products/${id}/image-url`, { method: "POST", body: JSON.stringify({ url }) }),
+  setPrimaryImage: (id: number, imageId: number) =>
+    request<{ ok: boolean; image_url: string }>(`/products/${id}/images/${imageId}/primary`, { method: "POST" }),
+  deleteProductImage: (id: number, imageId: number) =>
+    request<{ ok: boolean }>(`/products/${id}/images/${imageId}`, { method: "DELETE" }),
+  uploadProductImage: async (id: number, file: File): Promise<ProductImage> => {
     const fd = new FormData();
     fd.append("file", file);
     const res = await fetch(`${V1}/products/${id}/image`, {
@@ -478,6 +486,12 @@ export interface ShippingStatus {
   };
   last_message_at: string | null;
   error: string | null;
+}
+export interface ProductImage {
+  id: number;
+  url: string;
+  is_primary: boolean;
+  sort_order: number;
 }
 export interface CompanyProfile {
   name: string;
