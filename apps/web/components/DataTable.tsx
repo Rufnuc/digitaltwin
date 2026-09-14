@@ -1,7 +1,11 @@
 "use client";
 import React, { useEffect, useState } from "react";
-import { api } from "@/lib/api";
+import { api, getRole } from "@/lib/api";
+import { type Role, roleAtLeast } from "@/lib/roles";
+import { EntityForm, type FormField } from "./EntityForm";
 import { ProvenanceBadge } from "./ui";
+
+export type { FormField };
 
 export interface Column<T> {
   key: string;
@@ -17,19 +21,30 @@ export interface FilterSpec {
   options: { value: string; label: string }[];
 }
 
-// Generic paginated resource table with search, sortable headers and filters.
+// Generic paginated resource table with search, sortable headers, filters and —
+// when `formFields` is supplied — role-gated Add / Edit / Delete.
 export function ResourceTable<T extends Record<string, unknown>>({
   resource,
   columns,
   searchable = true,
   showProvenance = true,
   filters = [],
+  formFields,
+  entityLabel = "record",
+  writeRole = "STAFF",
+  deleteRole = "MANAGER",
+  idKey = "id",
 }: {
   resource: string;
   columns: Column<T>[];
   searchable?: boolean;
   showProvenance?: boolean;
   filters?: FilterSpec[];
+  formFields?: FormField[];
+  entityLabel?: string;
+  writeRole?: Role;
+  deleteRole?: Role;
+  idKey?: string;
 }) {
   const [items, setItems] = useState<T[]>([]);
   const [total, setTotal] = useState(0);
@@ -40,7 +55,15 @@ export function ResourceTable<T extends Record<string, unknown>>({
   const [filterValues, setFilterValues] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [editing, setEditing] = useState<T | null>(null);
+  const [creating, setCreating] = useState(false);
   const limit = 25;
+
+  const role = getRole();
+  const canWrite = !!formFields && roleAtLeast(role, writeRole);
+  const canDelete = !!formFields && roleAtLeast(role, deleteRole);
+  const cols = columns.length + (showProvenance ? 1 : 0) + (canWrite ? 1 : 0);
 
   useEffect(() => {
     let active = true;
@@ -62,7 +85,18 @@ export function ResourceTable<T extends Record<string, unknown>>({
     return () => {
       active = false;
     };
-  }, [resource, offset, q, sort, sortDir, filterValues]);
+  }, [resource, offset, q, sort, sortDir, filterValues, refreshKey]);
+
+  async function remove(row: T) {
+    const label = String(row["name"] ?? row["code"] ?? row[idKey]);
+    if (!window.confirm(`Delete ${entityLabel} "${label}"? This cannot be undone.`)) return;
+    try {
+      await api.deleteResource(resource, row[idKey] as number);
+      setRefreshKey((k) => k + 1);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Delete failed");
+    }
+  }
 
   function toggleSort(key: string) {
     setOffset(0);
@@ -119,6 +153,14 @@ export function ResourceTable<T extends Record<string, unknown>>({
             Clear
           </button>
         )}
+        {canWrite && (
+          <button
+            onClick={() => setCreating(true)}
+            className="ml-auto rounded bg-ink px-3 py-1.5 text-sm font-medium text-paper"
+          >
+            + Add {entityLabel}
+          </button>
+        )}
       </div>
 
       {error && <div className="mb-2 text-sm text-red-700">Error: {error}</div>}
@@ -144,9 +186,25 @@ export function ResourceTable<T extends Record<string, unknown>>({
                   </span>
                 </div>
               ))}
-              {showProvenance && (
-                <div className="mt-1 flex justify-end border-t border-line pt-1.5">
-                  <ProvenanceBadge origin={String(row["data_origin"] ?? "REAL")} />
+              {(showProvenance || canWrite) && (
+                <div className="mt-1 flex items-center justify-between border-t border-line pt-1.5">
+                  {showProvenance ? (
+                    <ProvenanceBadge origin={String(row["data_origin"] ?? "REAL")} />
+                  ) : (
+                    <span />
+                  )}
+                  {canWrite && (
+                    <span className="flex gap-3 text-xs">
+                      <button onClick={() => setEditing(row)} className="text-muted underline">
+                        Edit
+                      </button>
+                      {canDelete && (
+                        <button onClick={() => remove(row)} className="text-red-700 underline">
+                          Delete
+                        </button>
+                      )}
+                    </span>
+                  )}
                 </div>
               )}
             </div>
@@ -177,18 +235,19 @@ export function ResourceTable<T extends Record<string, unknown>>({
                 </th>
               ))}
               {showProvenance && <th className="px-3 py-2 font-medium">Origin</th>}
+              {canWrite && <th className="px-3 py-2 text-right font-medium">Actions</th>}
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
-                <td className="px-3 py-6 text-muted" colSpan={columns.length + 1}>
+                <td className="px-3 py-6 text-muted" colSpan={cols}>
                   Loading…
                 </td>
               </tr>
             ) : items.length === 0 ? (
               <tr>
-                <td className="px-3 py-6 text-muted" colSpan={columns.length + 1}>
+                <td className="px-3 py-6 text-muted" colSpan={cols}>
                   No records.
                 </td>
               </tr>
@@ -203,6 +262,24 @@ export function ResourceTable<T extends Record<string, unknown>>({
                   {showProvenance && (
                     <td className="px-3 py-2">
                       <ProvenanceBadge origin={String(row["data_origin"] ?? "REAL")} />
+                    </td>
+                  )}
+                  {canWrite && (
+                    <td className="whitespace-nowrap px-3 py-2 text-right">
+                      <button
+                        onClick={() => setEditing(row)}
+                        className="text-xs text-muted underline hover:text-ink"
+                      >
+                        Edit
+                      </button>
+                      {canDelete && (
+                        <button
+                          onClick={() => remove(row)}
+                          className="ml-3 text-xs text-red-700 underline"
+                        >
+                          Delete
+                        </button>
+                      )}
                     </td>
                   )}
                 </tr>
@@ -232,6 +309,30 @@ export function ResourceTable<T extends Record<string, unknown>>({
           </button>
         </div>
       </div>
+
+      {formFields && creating && (
+        <EntityForm
+          title={`Add ${entityLabel}`}
+          fields={formFields}
+          onClose={() => setCreating(false)}
+          onSubmit={async (values) => {
+            await api.createResource(resource, values);
+            setRefreshKey((k) => k + 1);
+          }}
+        />
+      )}
+      {formFields && editing && (
+        <EntityForm
+          title={`Edit ${entityLabel}`}
+          fields={formFields}
+          initial={editing}
+          onClose={() => setEditing(null)}
+          onSubmit={async (values) => {
+            await api.updateResource(resource, editing[idKey] as number, values);
+            setRefreshKey((k) => k + 1);
+          }}
+        />
+      )}
     </div>
   );
 }

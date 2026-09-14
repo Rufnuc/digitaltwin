@@ -100,6 +100,36 @@ export const api = {
     request<{ items: T[]; total: number; limit: number; offset: number }>(
       `/${resource}${params}`,
     ),
+  // Generic CRUD writes against build_crud_router resources.
+  createResource: <T>(resource: string, body: unknown) =>
+    request<T>(`/${resource}`, { method: "POST", body: JSON.stringify(body) }),
+  updateResource: <T>(resource: string, id: number | string, body: unknown) =>
+    request<T>(`/${resource}/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  deleteResource: (resource: string, id: number | string) =>
+    request<{ deleted: boolean } | Record<string, unknown>>(`/${resource}/${id}`, {
+      method: "DELETE",
+    }),
+  // ---- Warehouses & stock ----
+  stockLots: (params = "") => request<{ items: StockLot[]; total: number }>(`/stock/lots${params}`),
+  stockLot: (id: number) => request<StockLotDetail>(`/stock/lots/${id}`),
+  productOnHand: (productId: number) =>
+    request<{ product_id: number; by_warehouse: { warehouse_id: number; warehouse: string; on_hand: number }[] }>(
+      `/stock/products/${productId}/on-hand`,
+    ),
+  stockReceive: (body: unknown) =>
+    request<StockLotDetail>("/stock/receive", { method: "POST", body: JSON.stringify(body) }),
+  stockTransfer: (body: unknown) =>
+    request<Record<string, unknown>>("/stock/transfer", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  stockAdjust: (body: unknown) =>
+    request<StockLotDetail>("/stock/adjust", { method: "POST", body: JSON.stringify(body) }),
+  invoiceSell: (body: unknown) =>
+    request<{ invoice: Record<string, unknown>; allocations: unknown[]; note: string }>(
+      "/invoices/sell",
+      { method: "POST", body: JSON.stringify(body) },
+    ),
   scenarioTypes: () => request<{ implemented: string[] }>("/simulations/scenario-types"),
   createSimulation: (body: unknown) =>
     request<Simulation>("/simulations", { method: "POST", body: JSON.stringify(body) }),
@@ -407,6 +437,39 @@ export interface ShippingStatus {
   };
   last_message_at: string | null;
   error: string | null;
+}
+export interface StockLot {
+  id: number;
+  lot_code: string;
+  product_id: number;
+  product: string | null;
+  warehouse_id: number;
+  warehouse: string | null;
+  supplier: string | null;
+  purchase_id: number | null;
+  received_date: string | null;
+  quantity_received: number;
+  quantity_remaining: number;
+  unit_cost: number | null;
+  status: string;
+  note: string | null;
+}
+export interface StockMovement {
+  id: number;
+  type: string;
+  quantity: number;
+  occurred_at: string | null;
+  warehouse: string | null;
+  invoice_id: number | null;
+  customer: string | null;
+  counterparty_warehouse: string | null;
+  unit_cost: number | null;
+  note: string | null;
+}
+export interface StockLotDetail extends StockLot {
+  movements: StockMovement[];
+  sold_to: string[];
+  invoices: number[];
 }
 export interface LaneSignal {
   lane: string;
