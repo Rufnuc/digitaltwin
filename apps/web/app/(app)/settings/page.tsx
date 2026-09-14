@@ -70,9 +70,72 @@ export default function SettingsPage() {
         </Card>
       </div>
 
+      {isOwner && <CompanyPanel />}
       {isAdmin && <UsersPanel />}
       {isOwner && <DataPanel />}
     </div>
+  );
+}
+
+function CompanyPanel() {
+  const FIELDS: { key: string; label: string }[] = [
+    { key: "name", label: "Company name" },
+    { key: "address", label: "Address" },
+    { key: "phone", label: "Phone" },
+    { key: "email", label: "Email" },
+    { key: "website", label: "Website" },
+    { key: "tax_id", label: "Tax ID / RC number" },
+    { key: "footer_note", label: "Invoice footer note" },
+  ];
+  const [form, setForm] = useState<Record<string, string>>({});
+  const [msg, setMsg] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api
+      .company()
+      .then((c) => {
+        const f: Record<string, string> = {};
+        for (const k of FIELDS) f[k.key] = (c as unknown as Record<string, string>)[k.key] ?? "";
+        setForm(f);
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function save() {
+    setMsg(null);
+    setError(null);
+    try {
+      await api.updateCompany(form);
+      setMsg("Company details saved — they now appear on printed invoices.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Save failed");
+    }
+  }
+
+  return (
+    <Card className="mt-4 p-4">
+      <div className="mb-1 text-sm font-medium">Company details</div>
+      <div className="mb-3 text-xs text-muted">Printed on invoices and documents.</div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {FIELDS.map((f) => (
+          <label key={f.key} className="text-xs text-muted">
+            {f.label}
+            <input
+              value={form[f.key] ?? ""}
+              onChange={(e) => setForm((p) => ({ ...p, [f.key]: e.target.value }))}
+              className="mt-1 w-full rounded border border-line bg-paper px-3 py-1.5 text-sm outline-none focus:border-ink"
+            />
+          </label>
+        ))}
+      </div>
+      {error && <div className="mt-2 text-sm text-red-700">{error}</div>}
+      {msg && <div className="mt-2 text-sm text-green-700 dark:text-green-300">{msg}</div>}
+      <button onClick={save} className="mt-3 rounded bg-ink px-3 py-1.5 text-sm font-medium text-paper">
+        Save
+      </button>
+    </Card>
   );
 }
 

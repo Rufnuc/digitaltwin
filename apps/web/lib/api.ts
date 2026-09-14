@@ -140,6 +140,9 @@ export const api = {
     request<{ items: InvoiceVersionRow[] }>(`/invoices/${id}/versions`),
   invoiceUpdate: (id: number, body: unknown) =>
     request<InvoiceDetail>(`/invoices/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  company: () => request<CompanyProfile>("/company"),
+  updateCompany: (body: unknown) =>
+    request<CompanyProfile>("/company", { method: "PUT", body: JSON.stringify(body) }),
   scenarioTypes: () => request<{ implemented: string[] }>("/simulations/scenario-types"),
   createSimulation: (body: unknown) =>
     request<Simulation>("/simulations", { method: "POST", body: JSON.stringify(body) }),
@@ -447,6 +450,15 @@ export interface ShippingStatus {
   };
   last_message_at: string | null;
   error: string | null;
+}
+export interface CompanyProfile {
+  name: string;
+  address: string | null;
+  phone: string | null;
+  email: string | null;
+  tax_id: string | null;
+  website: string | null;
+  footer_note: string | null;
 }
 export interface InvoiceDetail {
   id: number;

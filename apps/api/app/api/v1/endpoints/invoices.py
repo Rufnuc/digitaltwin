@@ -140,13 +140,26 @@ def invoice_versions(
     }
 
 
+class PatchLine(BaseModel):
+    product_id: int | None = None
+    original_description: str | None = None
+    quantity: float = 0
+    unit_price: float = 0
+
+
 class InvoicePatch(BaseModel):
+    invoice_number: str | None = None
     invoice_date: date | None = None
     customer_id: int | None = None
     tax: float | None = None
     discount: float | None = None
     verification_status: str | None = None
+    lines: list[PatchLine] | None = None
     change_note: str | None = None
+
+
+_HEADER_FIELDS = ("invoice_number", "invoice_date", "customer_id", "tax", "discount",
+                  "verification_status")
 
 
 @router.patch("/{invoice_id}")
@@ -156,22 +169,35 @@ def update_invoice(
     db: Session = Depends(db_session),
     user: User = Depends(require_role(Role.MANAGER)),
 ) -> dict:
-    """Edit an invoice's header. Every edit keeps the prior state as a version, so
-    the full history is preserved and attributed."""
+    """Edit an invoice — header fields and/or its full line items. Every edit keeps
+    the prior state as an immutable version, so nothing is ever lost."""
     inv = db.get(Invoice, invoice_id)
     if inv is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"Invoice {invoice_id} not found")
 
-    fields = payload.model_dump(exclude_unset=True, exclude={"change_note"})
-    if not fields:
+    data = payload.model_dump(exclude_unset=True)
+    fields = {k: data[k] for k in _HEADER_FIELDS if k in data}
+    if not fields and payload.lines is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "no changes supplied")
     old = {k: getattr(inv, k) for k in fields}
     for k, v in fields.items():
         setattr(inv, k, v)
-    # Totals follow from the (possibly changed) tax/discount.
+
+    # Replace the line items when supplied, recomputing the subtotal from them.
+    if payload.lines is not None:
+        inv.lines.clear()
+        for ln in payload.lines:
+            inv.lines.append(InvoiceLine(
+                product_id=ln.product_id, original_description=ln.original_description,
+                quantity=ln.quantity, unit_price=ln.unit_price,
+                line_total=round(ln.quantity * ln.unit_price, 2),
+            ))
+        inv.subtotal = round(sum(ln.quantity * ln.unit_price for ln in payload.lines), 2)
+
     inv.total = round(float(inv.subtotal or 0) + float(inv.tax or 0) - float(inv.discount or 0), 2)
     inv.updated_by_user_id = user.id
     inv.version_no += 1
+    db.flush()
     _record_version(db, inv, user.id, payload.change_note or "edited")
     db.commit()
     db.refresh(inv)
@@ -179,7 +205,8 @@ def update_invoice(
         db, action=AuditAction.UPDATE, user_id=user.id, entity_type="invoice",
         entity_id=inv.id,
         old_value={k: str(v) for k, v in old.items()},
-        new_value={k: str(v) for k, v in fields.items()},
+        new_value={k: str(v) for k, v in fields.items()} | (
+            {"lines": len(payload.lines)} if payload.lines is not None else {}),
         summary=f"invoice {inv.invoice_number} edited to v{inv.version_no}",
     )
     return get_invoice(inv.id, db, user)

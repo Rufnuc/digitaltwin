@@ -10,6 +10,7 @@ from app.api.v1.endpoints import (
     analytics,
     assistant,
     auth,
+    company,
     dashboard,
     documents,
     impact,
@@ -50,6 +51,7 @@ api_router.include_router(admin.router)
 api_router.include_router(shipping.router)
 api_router.include_router(notifications.router)
 api_router.include_router(stock.router)
+api_router.include_router(company.router)
 api_router.include_router(meta.router)
 
 # Generic CRUD resources

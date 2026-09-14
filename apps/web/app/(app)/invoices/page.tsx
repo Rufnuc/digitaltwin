@@ -3,8 +3,8 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { PageHeader } from "@/components/Shell";
 import { Card, ProvenanceBadge } from "@/components/ui";
-import { EntityForm, type FormField } from "@/components/EntityForm";
 import { api, getRole, type InvoiceDetail, type InvoiceVersionRow } from "@/lib/api";
+import { printInvoice } from "@/lib/printInvoice";
 import { money2 } from "@/lib/format";
 import { roleAtLeast } from "@/lib/roles";
 
@@ -229,18 +229,7 @@ function InvoiceDrawer({
     reload();
   }, [reload]);
 
-  const editFields: FormField[] = [
-    { key: "invoice_date", label: "Date", type: "date" },
-    { key: "tax", label: "Tax (₦)", type: "number", step: "0.01" },
-    { key: "discount", label: "Discount (₦)", type: "number", step: "0.01" },
-    {
-      key: "verification_status",
-      label: "Verification",
-      type: "select",
-      options: STATUSES.map((s) => ({ value: s, label: s })),
-    },
-    { key: "change_note", label: "Reason for change", placeholder: "why you're editing" },
-  ];
+  const [viewVersion, setViewVersion] = useState<InvoiceVersionRow | null>(null);
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/40" onMouseDown={onClose}>
@@ -272,14 +261,22 @@ function InvoiceDrawer({
               <F label="Last edited by" value={inv.updated_by ?? "—"} />
             </div>
 
-            {canEdit && (
+            <div className="mb-4 flex flex-wrap gap-2">
+              {canEdit && (
+                <button
+                  onClick={() => setEditing(true)}
+                  className="rounded border border-line px-3 py-1.5 text-sm hover:bg-wash"
+                >
+                  Edit invoice
+                </button>
+              )}
               <button
-                onClick={() => setEditing(true)}
-                className="mb-4 rounded border border-line px-3 py-1.5 text-sm hover:bg-wash"
+                onClick={() => printInvoice(inv, versions)}
+                className="rounded border border-line px-3 py-1.5 text-sm hover:bg-wash"
               >
-                Edit invoice
+                Print / download
               </button>
-            )}
+            </div>
 
             <div className="text-xs font-medium uppercase tracking-wide text-muted">Line items</div>
             <table className="mb-4 mt-1 w-full text-sm">
@@ -297,44 +294,53 @@ function InvoiceDrawer({
 
             <div className="flex items-center justify-between">
               <span className="text-xs font-medium uppercase tracking-wide text-muted">
-                Version history ({versions.length})
+                Version history ({versions.length}) — click to view
               </span>
               <ProvenanceBadge origin="REAL" />
             </div>
             <ol className="mt-2 space-y-2">
+              {versions.length === 0 && (
+                <li className="text-[11px] text-muted">
+                  No prior versions recorded (invoice predates version tracking, or is unedited).
+                </li>
+              )}
               {versions.map((v) => (
-                <li key={v.version_no} className="rounded border border-line p-2 text-sm">
-                  <div className="flex items-center justify-between">
-                    <span className="font-medium">v{v.version_no}</span>
-                    <span className="tabular-nums">
-                      {money2((v.snapshot.total as number) ?? 0)}
-                    </span>
-                  </div>
-                  <div className="text-[11px] text-muted">
-                    {v.change_note ?? "—"} · {v.changed_by ?? "—"}
-                    {v.changed_at ? ` · ${new Date(v.changed_at).toLocaleString()}` : ""}
-                  </div>
+                <li key={v.version_no}>
+                  <button
+                    onClick={() => setViewVersion(v)}
+                    className="w-full rounded border border-line p-2 text-left text-sm hover:bg-wash"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium">v{v.version_no}</span>
+                      <span className="tabular-nums">
+                        {money2((v.snapshot.total as number) ?? 0)}
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-muted">
+                      {v.change_note ?? "—"} · {v.changed_by ?? "—"}
+                      {v.changed_at ? ` · ${new Date(v.changed_at).toLocaleString()}` : ""}
+                    </div>
+                  </button>
                 </li>
               ))}
             </ol>
 
             {editing && (
-              <EntityForm
-                title={`Edit ${inv.invoice_number}`}
-                submitLabel="Save version"
-                fields={editFields}
-                initial={{
-                  invoice_date: inv.invoice_date,
-                  tax: inv.tax,
-                  discount: inv.discount,
-                  verification_status: inv.verification_status,
-                }}
+              <InvoiceEditModal
+                inv={inv}
                 onClose={() => setEditing(false)}
-                onSubmit={async (vals) => {
-                  await api.invoiceUpdate(id, vals);
+                onSaved={async () => {
+                  setEditing(false);
                   await reload();
                   onChanged();
                 }}
+              />
+            )}
+            {viewVersion && (
+              <VersionModal
+                invoiceNumber={inv.invoice_number}
+                version={viewVersion}
+                onClose={() => setViewVersion(null)}
               />
             )}
           </>
@@ -349,6 +355,213 @@ function F({ label, value }: { label: string; value: string | number }) {
     <div>
       <div className="text-[10px] uppercase tracking-wide text-muted">{label}</div>
       <div className="text-sm">{value}</div>
+    </div>
+  );
+}
+
+// ---- Full edit (header + line items) ---------------------------------------
+interface EditLine {
+  key: number;
+  product_id: string;
+  description: string;
+  quantity: string;
+  unit_price: string;
+}
+
+function InvoiceEditModal({
+  inv,
+  onClose,
+  onSaved,
+}: {
+  inv: InvoiceDetail;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [products, setProducts] = useState<{ id: number; name: string; code: string }[]>([]);
+  const [number, setNumber] = useState(inv.invoice_number);
+  const [date, setDate] = useState(inv.invoice_date);
+  const [tax, setTax] = useState(String(inv.tax));
+  const [discount, setDiscount] = useState(String(inv.discount));
+  const [statusVal, setStatusVal] = useState(inv.verification_status);
+  const [note, setNote] = useState("");
+  const [lines, setLines] = useState<EditLine[]>(
+    inv.lines.map((ln, i) => ({
+      key: i,
+      product_id: ln.product_id ? String(ln.product_id) : "",
+      description: ln.original_description ?? "",
+      quantity: String(ln.quantity),
+      unit_price: String(ln.unit_price),
+    })),
+  );
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.list<{ id: number; name: string; code: string }>("products", "?limit=200")
+      .then((r) => setProducts(r.items))
+      .catch(() => {});
+  }, []);
+
+  function setLine(key: number, patch: Partial<EditLine>) {
+    setLines((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)));
+  }
+  const subtotal = lines.reduce((s, l) => s + (Number(l.quantity) || 0) * (Number(l.unit_price) || 0), 0);
+  const total = subtotal + (Number(tax) || 0) - (Number(discount) || 0);
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setBusy(true);
+    try {
+      await api.invoiceUpdate(inv.id, {
+        invoice_number: number,
+        invoice_date: date,
+        verification_status: statusVal,
+        tax: Number(tax) || 0,
+        discount: Number(discount) || 0,
+        change_note: note || "edited",
+        lines: lines
+          .filter((l) => l.description.trim() || l.product_id)
+          .map((l) => ({
+            product_id: l.product_id ? Number(l.product_id) : null,
+            original_description:
+              l.description.trim() ||
+              products.find((p) => String(p.id) === l.product_id)?.name ||
+              null,
+            quantity: Number(l.quantity) || 0,
+            unit_price: Number(l.unit_price) || 0,
+          })),
+      });
+      onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Save failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const inp = "w-full rounded border border-line bg-paper px-2 py-1.5 text-sm outline-none focus:border-ink";
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-black/50 p-4" onMouseDown={onClose}>
+      <form onMouseDown={(e) => e.stopPropagation()} onSubmit={save} className="w-full max-w-2xl rounded-lg border border-line bg-paper p-4 shadow-xl">
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-base font-semibold">Edit {inv.invoice_number}</h2>
+          <button type="button" onClick={onClose} className="text-muted hover:text-ink">✕</button>
+        </div>
+        <div className="mb-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <label className="col-span-2 text-xs text-muted">Invoice #
+            <input value={number} onChange={(e) => setNumber(e.target.value)} className={inp} />
+          </label>
+          <label className="text-xs text-muted">Date
+            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={inp} />
+          </label>
+          <label className="text-xs text-muted">Status
+            <select value={statusVal} onChange={(e) => setStatusVal(e.target.value)} className={inp}>
+              {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </label>
+        </div>
+
+        <div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted">Line items</div>
+        <div className="space-y-2">
+          {lines.map((l) => (
+            <div key={l.key} className="grid grid-cols-12 items-center gap-2">
+              <select
+                value={l.product_id}
+                onChange={(e) => {
+                  const p = products.find((x) => String(x.id) === e.target.value);
+                  setLine(l.key, { product_id: e.target.value, description: p ? p.name : l.description });
+                }}
+                className={`col-span-12 sm:col-span-5 ${inp}`}
+              >
+                <option value="">Custom / no product</option>
+                {products.map((p) => <option key={p.id} value={p.id}>{p.code} — {p.name}</option>)}
+              </select>
+              <input value={l.description} onChange={(e) => setLine(l.key, { description: e.target.value })} placeholder="Description" className={`col-span-12 sm:col-span-3 ${inp}`} />
+              <input type="number" value={l.quantity} onChange={(e) => setLine(l.key, { quantity: e.target.value })} placeholder="Qty" className={`col-span-4 sm:col-span-1 ${inp}`} />
+              <input type="number" step="0.01" value={l.unit_price} onChange={(e) => setLine(l.key, { unit_price: e.target.value })} placeholder="Unit ₦" className={`col-span-6 sm:col-span-2 ${inp}`} />
+              <button type="button" onClick={() => setLines((ls) => ls.filter((x) => x.key !== l.key))} className="col-span-2 text-muted hover:text-red-700 sm:col-span-1" aria-label="Remove">✕</button>
+            </div>
+          ))}
+        </div>
+        <button type="button" onClick={() => setLines((ls) => [...ls, { key: Date.now(), product_id: "", description: "", quantity: "1", unit_price: "" }])} className="mt-2 text-xs text-muted underline decoration-dotted">+ Add line</button>
+
+        <div className="mt-3 grid grid-cols-2 gap-3 sm:max-w-md">
+          <label className="text-xs text-muted">Tax (₦)
+            <input type="number" step="0.01" value={tax} onChange={(e) => setTax(e.target.value)} className={inp} />
+          </label>
+          <label className="text-xs text-muted">Discount (₦)
+            <input type="number" step="0.01" value={discount} onChange={(e) => setDiscount(e.target.value)} className={inp} />
+          </label>
+        </div>
+        <div className="mt-2 text-right text-sm font-semibold">Total: {money2(total)}</div>
+
+        <label className="mt-3 block text-xs text-muted">Reason for change
+          <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="why you're editing" className={inp} />
+        </label>
+
+        {error && <div className="mt-2 text-sm text-red-700">{error}</div>}
+        <div className="mt-4 flex justify-end gap-2">
+          <button type="button" onClick={onClose} className="rounded border border-line px-3 py-1.5 text-sm hover:bg-wash">Cancel</button>
+          <button type="submit" disabled={busy} className="rounded bg-ink px-3 py-1.5 text-sm font-medium text-paper disabled:opacity-50">
+            {busy ? "Saving…" : "Save new version"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+// ---- Read-only view of a past version --------------------------------------
+function VersionModal({
+  invoiceNumber,
+  version,
+  onClose,
+}: {
+  invoiceNumber: string;
+  version: InvoiceVersionRow;
+  onClose: () => void;
+}) {
+  const s = version.snapshot as {
+    total?: number; subtotal?: number; tax?: number; discount?: number;
+    verification_status?: string; invoice_date?: string;
+    lines?: { description?: string | null; quantity?: number; unit_price?: number; line_total?: number }[];
+  };
+  return (
+    <div className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-black/50 p-4" onMouseDown={onClose}>
+      <div onMouseDown={(e) => e.stopPropagation()} className="w-full max-w-lg rounded-lg border border-line bg-paper p-4 shadow-xl">
+        <div className="mb-1 flex items-center justify-between">
+          <h2 className="text-base font-semibold">{invoiceNumber} — version {version.version_no}</h2>
+          <button onClick={onClose} className="text-muted hover:text-ink">✕</button>
+        </div>
+        <div className="mb-3 text-[11px] text-muted">
+          {version.change_note ?? "—"} · {version.changed_by ?? "—"}
+          {version.changed_at ? ` · ${new Date(version.changed_at).toLocaleString()}` : ""}
+          <span className="ml-2 rounded bg-muted/15 px-1 py-0.5">immutable</span>
+        </div>
+        <div className="mb-3 grid grid-cols-2 gap-2 text-sm">
+          <F label="Date" value={s.invoice_date ?? "—"} />
+          <F label="Verification" value={s.verification_status ?? "—"} />
+          <F label="Subtotal" value={money2(s.subtotal ?? 0)} />
+          <F label="Tax" value={money2(s.tax ?? 0)} />
+          <F label="Discount" value={money2(s.discount ?? 0)} />
+          <F label="Total" value={money2(s.total ?? 0)} />
+        </div>
+        <div className="text-xs font-medium uppercase tracking-wide text-muted">Line items (as at this version)</div>
+        <table className="mt-1 w-full text-sm">
+          <tbody>
+            {(s.lines ?? []).map((ln, i) => (
+              <tr key={i} className="border-t border-line tabular-nums">
+                <td className="py-1">{ln.description ?? "—"}</td>
+                <td className="py-1 text-right">{ln.quantity} ×</td>
+                <td className="py-1 text-right">{money2(ln.unit_price ?? 0)}</td>
+                <td className="py-1 text-right font-medium">{money2(ln.line_total ?? 0)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
