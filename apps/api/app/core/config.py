@@ -72,6 +72,19 @@ class Settings(BaseSettings):
     QUANT_SERVICE_LEVEL_C: float = 0.90
     QUANT_SERVICE_LEVEL_DEFAULT: float = 0.95  # unknown / no-evidence class
 
+    # Landed-cost uplifts as a % of the supplier's base cost (spec v4 §9). These are
+    # PLACEHOLDERS until an import/clearing expert supplies real figures — see
+    # docs/landed_cost_questions_for_expert.md. While QUANT_LANDED_COST_CONFIGURED
+    # is False the estimate is shown clearly marked PLACEHOLDER and is NOT used in
+    # reorder/margin decisions, so nothing is silently wrong.
+    QUANT_LANDED_COST_CONFIGURED: bool = False
+    QUANT_LANDED_FREIGHT_PCT: float = 8.0     # placeholder
+    QUANT_LANDED_DUTY_PCT: float = 20.0       # placeholder
+    QUANT_LANDED_LEVIES_PCT: float = 9.0      # placeholder (VAT/ETLS/surcharge)
+    QUANT_LANDED_CLEARING_PCT: float = 5.0    # placeholder (agent/terminal/transport)
+    QUANT_LANDED_FX_BUFFER_PCT: float = 5.0   # placeholder
+    QUANT_LANDED_QUALITY_PCT: float = 1.0     # placeholder
+
     # CORS
     CORS_ORIGINS: list[str] = Field(
         default_factory=lambda: ["http://localhost:3000", "http://127.0.0.1:3000"]

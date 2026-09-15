@@ -119,6 +119,25 @@ def portfolio_simulate(
     )
 
 
+@router.get("/quant/products/{product_id}/landed-cost")
+def landed_cost(
+    product_id: int,
+    db: Session = Depends(db_session),
+    _: User = Depends(require_role(Role.ANALYST)),
+) -> dict:
+    """Estimated landed cost (base + import uplifts). PLACEHOLDER until configured."""
+    _require_enabled()
+    from app.models.product import Product
+    from app.services.quant import supplier as sup
+    prod = db.get(Product, product_id)
+    if prod is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Product {product_id} not found")
+    return {"product_id": product_id, "product_name": prod.name,
+            "base_unit_cost": float(prod.purchase_cost) if prod.purchase_cost else None,
+            **sup.estimate_landed_cost(
+                float(prod.purchase_cost) if prod.purchase_cost else None)}
+
+
 @router.get("/quant/suppliers/scores")
 def supplier_scores(
     db: Session = Depends(db_session),

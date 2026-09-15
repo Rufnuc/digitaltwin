@@ -55,6 +55,48 @@ def landed_cost(
             "provenance": "REAL" if not missing else "PARTIAL"}
 
 
+def estimate_landed_cost(base_unit_cost: float | None) -> dict:
+    """Estimate landed cost from the configured %-uplifts (spec §9).
+
+    While the uplifts are placeholders (QUANT_LANDED_COST_CONFIGURED is False) the
+    result is tagged PLACEHOLDER and must not drive reorder/margin decisions. Once
+    an expert's real figures are set and the flag flipped on, the same call returns
+    a usable landed cost. Percentages apply to the supplier's base cost.
+    """
+    from app.core.config import settings
+    if base_unit_cost is None:
+        return {"status": "INSUFFICIENT_DATA", "warnings": ["MISSING_BASE_COST"],
+                "total_landed_cost": None}
+    pct = {
+        "freight_per_unit": settings.QUANT_LANDED_FREIGHT_PCT,
+        "duty_per_unit": settings.QUANT_LANDED_DUTY_PCT,
+        "levies_per_unit": settings.QUANT_LANDED_LEVIES_PCT,
+        "clearing_per_unit": settings.QUANT_LANDED_CLEARING_PCT,
+        "fx_risk_surcharge_per_unit": settings.QUANT_LANDED_FX_BUFFER_PCT,
+        "expected_quality_cost_per_unit": settings.QUANT_LANDED_QUALITY_PCT,
+    }
+    base = float(base_unit_cost)
+    components = {"base_unit_cost": round(base, 4)}
+    for name, p in pct.items():
+        components[name] = round(base * float(p) / 100.0, 4)
+    total = round(sum(components.values()), 4)
+    configured = bool(settings.QUANT_LANDED_COST_CONFIGURED)
+    return {
+        "status": "OK",
+        "configured": configured,
+        "components": components,
+        "uplift_percentages": pct,
+        "total_uplift_pct": round(sum(pct.values()), 4),
+        "total_landed_cost": total,
+        "provenance": "MODEL_OUTPUT" if configured else "PLACEHOLDER",
+        "warnings": [] if configured else ["LANDED_COST_PLACEHOLDER_NOT_CONFIGURED"],
+        "note": None if configured else (
+            "Placeholder uplifts — not from a verified source; do not use for "
+            "pricing/reorder decisions. See docs/landed_cost_questions_for_expert.md."
+        ),
+    }
+
+
 def supplier_lead_times(db: Session, supplier_id: int,
                         include_demo: bool = False) -> list[float]:
     """Realised lead days for a supplier's receipts (purchase_date → received_date)."""

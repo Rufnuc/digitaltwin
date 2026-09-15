@@ -562,6 +562,28 @@ def _quant_portfolio_risk(db: Session, horizon_days: int = 90) -> dict:
     }
 
 
+def _quant_landed_cost(db: Session, product_id=None, product=None) -> dict:
+    """Estimated landed cost (base + import uplifts) for a product."""
+    from app.services.quant import supplier as sup
+
+    pid = _resolve_product_id(db, product_id, product)
+    if pid is None:
+        return {"error": "product not found; give a product id, code or name"}
+    prod = db.get(Product, pid)
+    if prod is None or prod.purchase_cost is None:
+        return {"product": getattr(prod, "name", None), "status": "INSUFFICIENT_DATA",
+                "missing_fields": ["unit_cost"]}
+    lc = sup.estimate_landed_cost(float(prod.purchase_cost))
+    return {
+        "product": prod.name, "base_unit_cost": float(prod.purchase_cost),
+        "total_landed_cost": lc["total_landed_cost"],
+        "total_uplift_pct": lc["total_uplift_pct"],
+        "components": lc["components"],
+        "configured": lc["configured"],
+        "note": lc["note"] or "Landed-cost uplifts are configured from real figures.",
+    }
+
+
 def _quant_supplier_scores(db: Session) -> dict:
     """Risk-adjusted supplier scores from reliability and realised lead times."""
     from app.services.quant import service as qsvc
@@ -936,6 +958,20 @@ TOOLS: list[ToolDef] = [
             "horizon_days": {"type": "integer", "minimum": 7, "maximum": 365},
         }},
         _quant_portfolio_risk, provenance="FORECAST", mutating=False,
+        min_role=Role.VIEWER.value,
+    ),
+    ToolDef(
+        "get_landed_cost",
+        "Estimated landed cost of a product — the supplier's base cost plus import "
+        "uplifts (freight, duty, levies, clearing, FX buffer). Identify the product "
+        "by id, code, or name. IMPORTANT: if 'configured' is false the uplifts are "
+        "PLACEHOLDERS, not real figures — say so and do not present the landed cost "
+        "as accurate.",
+        {"type": "object", "properties": {
+            "product_id": {"type": ["integer", "string"]},
+            "product": {"type": "string", "description": "product code or name"},
+        }},
+        _quant_landed_cost, provenance="ASSUMPTION", mutating=False,
         min_role=Role.VIEWER.value,
     ),
     ToolDef(

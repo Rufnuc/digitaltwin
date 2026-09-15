@@ -28,6 +28,29 @@ def test_landed_cost_needs_base():
     assert r["total_landed_cost"] is None
 
 
+def test_estimate_landed_cost_placeholder():
+    r = sup.estimate_landed_cost(1000.0)
+    assert r["status"] == "OK"
+    # Placeholder until configured -> flagged, not for decisions.
+    assert r["configured"] is False and r["provenance"] == "PLACEHOLDER"
+    assert "LANDED_COST_PLACEHOLDER_NOT_CONFIGURED" in r["warnings"]
+    # Components sum to the total, and total = base × (1 + total uplift).
+    assert round(sum(r["components"].values()), 4) == r["total_landed_cost"]
+    assert r["total_landed_cost"] == round(1000.0 * (1 + r["total_uplift_pct"] / 100), 4)
+
+
+def test_estimate_landed_cost_needs_base():
+    assert sup.estimate_landed_cost(None)["status"] == "INSUFFICIENT_DATA"
+
+
+def test_estimate_landed_cost_configured(monkeypatch):
+    from app.core.config import settings
+    monkeypatch.setattr(settings, "QUANT_LANDED_COST_CONFIGURED", True)
+    r = sup.estimate_landed_cost(500.0)
+    assert r["configured"] is True and r["provenance"] == "MODEL_OUTPUT"
+    assert r["warnings"] == [] and r["note"] is None
+
+
 def test_on_time_rate():
     # promised 10 days; 3 of 4 receipts on time.
     assert sup._on_time_rate([8, 9, 10, 15], 10) == 0.75
