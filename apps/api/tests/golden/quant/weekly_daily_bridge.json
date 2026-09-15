@@ -1,0 +1,44 @@
+{
+  "complete_weeks": 2,
+  "e_week": 14.0,
+  "eligible": false,
+  "expected_daily_means": [
+    2.0,
+    2.0,
+    2.0,
+    2.0,
+    2.0,
+    2.0,
+    2.0
+  ],
+  "expected_daily_total": 14.0,
+  "method": "uniform",
+  "reason": "INSUFFICIENT_WEEKS",
+  "weekday_names": [
+    "Mon",
+    "Tue",
+    "Wed",
+    "Thu",
+    "Fri",
+    "Sat",
+    "Sun"
+  ],
+  "weekday_obs_days": [
+    0,
+    1,
+    0,
+    0,
+    1,
+    0,
+    0
+  ],
+  "weekday_proportions": [
+    0.14285714,
+    0.14285714,
+    0.14285714,
+    0.14285714,
+    0.14285714,
+    0.14285714,
+    0.14285714
+  ]
+}

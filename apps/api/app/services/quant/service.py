@@ -17,6 +17,7 @@ from app.models.inventory import Inventory
 from app.models.product import Product
 from app.models.warehouse import StockLot
 from app.services.quant import backtest as bt
+from app.services.quant import bridge as br
 from app.services.quant import classification as cls
 from app.services.quant import config_version
 from app.services.quant import demand as dmd
@@ -64,6 +65,11 @@ def product_forecast(db: Session, product_id: int, as_of: date | None = None,
     pattern = cls.classify_pattern(series["units"])
     forecast = fc.forecast(series["units"], pattern["pattern"], horizon=horizon, seed=seed)
     diagnostics = bt.rolling_origin_backtest(series["units"], pattern["pattern"], seed=seed)
+    # Weekly→daily bridge for the next-period expected value (feeds the daily
+    # inventory-policy simulation in Phase 2).
+    e_week = (forecast.get("quantiles", {}).get("p50") or [0.0])[0]
+    events = br.product_daily_events(db, product_id, as_of, include_demo=include_demo)
+    bridge = br.daily_bridge(e_week, events, date.fromisoformat(series["as_of"]))
     return {
         "status": "OK" if pattern["pattern"] != "NO_EVIDENCE" else "INSUFFICIENT_DATA",
         "product_id": product_id,
@@ -74,6 +80,7 @@ def product_forecast(db: Session, product_id: int, as_of: date | None = None,
                    "total_units": series["total_units"], "stats": series["stats"]},
         "classification": pattern,
         "forecast": forecast,
+        "daily_bridge": bridge,
         "diagnostics": diagnostics,
         "config_version": config_version(),
         "provenance": "MODEL_OUTPUT",
