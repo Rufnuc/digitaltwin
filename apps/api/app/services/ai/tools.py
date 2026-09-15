@@ -497,13 +497,15 @@ def _quant_forecast(db: Session, product_id=None, product=None, horizon_periods:
     }
 
 
-def _quant_reorder(db: Session, product_id=None, product=None, service_level: float = 0.95) -> dict:
+def _quant_reorder(db: Session, product_id=None, product=None, service_level=None) -> dict:
     from app.services.quant import service as qsvc
 
     pid = _resolve_product_id(db, product_id, product)
     if pid is None:
         return {"error": "product not found; give a product id, code or name"}
-    r = qsvc.product_reorder(db, pid, service_level=float(service_level))
+    # None -> ABC-aware service level (A items protected more).
+    sl = float(service_level) if service_level is not None else None
+    r = qsvc.product_reorder(db, pid, service_level=sl)
     if r.get("status") != "OK":
         return {"product": r.get("product_name"), "status": r.get("status"),
                 "missing_fields": r.get("missing_fields")}
@@ -511,6 +513,7 @@ def _quant_reorder(db: Session, product_id=None, product=None, service_level: fl
     lt = r.get("lead_time", {})
     return {
         "product": r.get("product_name"), "pattern": r.get("pattern"),
+        "abc_class": r.get("abc_class"), "applied_service_level": r.get("applied_service_level"),
         "recommended_order_quantity": rec["recommended_order_quantity"],
         "safety_stock": rec["safety_stock"], "order_up_to_level": rec["order_up_to_level"],
         "protection_horizon_days": rec["protection_horizon_days"],

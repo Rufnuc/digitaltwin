@@ -49,6 +49,23 @@ def _weekly_stats(units: list[float]) -> tuple[float, float]:
     return mean, std
 
 
+def service_level_for_class(abc_class: str | None) -> float:
+    """ABC-aware cycle service level: A items are protected more than C (config)."""
+    from app.core.config import settings
+    return {
+        "A": settings.QUANT_SERVICE_LEVEL_A,
+        "B": settings.QUANT_SERVICE_LEVEL_B,
+        "C": settings.QUANT_SERVICE_LEVEL_C,
+    }.get(abc_class, settings.QUANT_SERVICE_LEVEL_DEFAULT)
+
+
+def _abc_class_map(db: Session, as_of: date | None = None,
+                   include_demo: bool = False) -> dict[int, str]:
+    """product_id -> ABC class ('A'/'B'/'C') across the active catalogue."""
+    report = abc_report(db, as_of=as_of, include_demo=include_demo)
+    return {i["product_id"]: i["abc_class"] for i in report.get("items", [])}
+
+
 def _uncertainty_ratio(forecast: dict) -> float | None:
     q = forecast.get("quantiles") or {}
     if not q.get("p50"):
@@ -89,11 +106,20 @@ def product_forecast(db: Session, product_id: int, as_of: date | None = None,
 
 
 def product_reorder(db: Session, product_id: int, as_of: date | None = None,
-                    service_level: float = ro.DEFAULT_SERVICE_LEVEL,
-                    review_period_days: int = 7, include_demo: bool = False) -> dict:
+                    service_level: float | None = None,
+                    review_period_days: int = 7, include_demo: bool = False,
+                    abc_class: str | None = None) -> dict:
+    """Reorder recommendation. If ``service_level`` is None it is derived from the
+    product's ABC class (A items protected more) — the ABC-aware default. Pass
+    ``abc_class`` to avoid recomputing the classification (used by reorder_scan)."""
     prod = db.get(Product, product_id)
     if prod is None:
         return {"status": "NOT_FOUND", "product_id": product_id}
+    # ABC-aware service level unless the caller pinned one explicitly.
+    if service_level is None:
+        if abc_class is None:
+            abc_class = _abc_class_map(db, as_of, include_demo).get(product_id)
+        service_level = service_level_for_class(abc_class)
     series = dmd.product_weekly_demand(db, product_id, as_of, include_demo=include_demo)
     pattern = cls.classify_pattern(series["units"])
     forecast = fc.forecast(series["units"], pattern["pattern"], horizon=12)
@@ -139,6 +165,8 @@ def product_reorder(db: Session, product_id: int, as_of: date | None = None,
         "product_code": prod.code,
         "product_name": prod.name,
         "pattern": pattern["pattern"],
+        "abc_class": abc_class,
+        "applied_service_level": service_level,
         "recommendation": rec,
         "lead_time": lt_stats,
         "eoq": eoq,
@@ -149,20 +177,25 @@ def product_reorder(db: Session, product_id: int, as_of: date | None = None,
 
 
 def reorder_scan(db: Session, as_of: date | None = None,
-                 service_level: float = ro.DEFAULT_SERVICE_LEVEL,
+                 service_level: float | None = None,
                  include_demo: bool = False, limit: int | None = None) -> dict:
     """Portfolio reorder: run the reorder engine across active products and return
     the ones that need ordering now. This is the quant "brain" the intelligence
     surfaces (Suggestions, Benfieg) consume — every number is deterministic and
     provenance-tagged. Items are split into READY (act now) and REVIEW_REQUIRED
     (forecast quality gate tripped), and ranked by estimated capital to restock.
+
+    Service level is ABC-aware by default (A items protected more); pass an explicit
+    ``service_level`` to override for all products.
     """
     products = db.scalars(select(Product).where(Product.is_active.is_(True))).all()
+    # Classify once so per-product reorder doesn't recompute the whole catalogue.
+    class_map = _abc_class_map(db, as_of, include_demo) if service_level is None else {}
     items: list[dict] = []
     skipped_missing = 0
     for p in products:
         r = product_reorder(db, p.id, as_of=as_of, service_level=service_level,
-                            include_demo=include_demo)
+                            include_demo=include_demo, abc_class=class_map.get(p.id))
         if r.get("status") != "OK":
             if r.get("status") == "INSUFFICIENT_DATA":
                 skipped_missing += 1
@@ -174,6 +207,8 @@ def reorder_scan(db: Session, as_of: date | None = None,
         items.append({
             "product_id": r["product_id"], "product_code": r["product_code"],
             "product_name": r["product_name"], "pattern": r.get("pattern"),
+            "abc_class": r.get("abc_class"),
+            "applied_service_level": r.get("applied_service_level"),
             "recommended_order_quantity": qty,
             "order_up_to_level": rec.get("order_up_to_level"),
             "inventory_position": rec.get("inventory_position"),

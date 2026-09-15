@@ -65,6 +65,12 @@ class Settings(BaseSettings):
     QUANT_INVENTORY_ENABLED: bool = True
     # Config version stamped onto quant results for reproducibility / replay.
     QUANT_CONFIG_VERSION: str = "1.0.0"
+    # ABC-aware cycle service levels: class-A items (most value) are protected more
+    # than class-C. Used when no explicit service level is supplied. Tunable.
+    QUANT_SERVICE_LEVEL_A: float = 0.98
+    QUANT_SERVICE_LEVEL_B: float = 0.95
+    QUANT_SERVICE_LEVEL_C: float = 0.90
+    QUANT_SERVICE_LEVEL_DEFAULT: float = 0.95  # unknown / no-evidence class
 
     # CORS
     CORS_ORIGINS: list[str] = Field(

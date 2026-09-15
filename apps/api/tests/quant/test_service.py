@@ -102,6 +102,29 @@ def test_reorder_scan_portfolio(db):
     assert scan["counts"]["to_order_now"] >= 1
 
 
+def test_reorder_is_abc_aware(db):
+    cust = Customer(code="CA", name="AbcCo")
+    db.add(cust)
+    big = _product(db, "BIG", cost=1000.0, lead=7)   # high value -> class A
+    small = _product(db, "SMALL", cost=50.0, lead=7)  # low value -> class C
+    db.commit()
+    start = date.today() - timedelta(weeks=20)
+    _seed_sales(db, big.id, cust.id, weekly_units=25, start=start, weeks=20)
+    _seed_sales(db, small.id, cust.id, weekly_units=1, start=start, weeks=20)
+
+    rb = qsvc.product_reorder(db, big.id)      # ABC-aware (service_level=None)
+    rs = qsvc.product_reorder(db, small.id)
+    assert rb["abc_class"] == "A"
+    assert rb["applied_service_level"] == qsvc.service_level_for_class("A")  # 0.98
+    assert rs["applied_service_level"] == qsvc.service_level_for_class(rs["abc_class"])
+    # A items are protected at least as much as the lower class.
+    assert rb["applied_service_level"] >= rs["applied_service_level"]
+
+    # An explicit service level overrides the ABC default.
+    pinned = qsvc.product_reorder(db, big.id, service_level=0.90)
+    assert pinned["applied_service_level"] == 0.90
+
+
 def test_abc_report(db):
     cust = Customer(code="C3", name="Gamma")
     db.add(cust)

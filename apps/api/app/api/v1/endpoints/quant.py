@@ -46,11 +46,13 @@ def reorder(
     product_id: int,
     db: Session = Depends(db_session),
     _: User = Depends(require_role(Role.ANALYST)),
-    service_level: float = Query(0.95, ge=0.5, le=0.999),
+    service_level: float | None = Query(None, ge=0.5, le=0.999),
     review_period_days: int = Query(7, ge=1, le=365),
     include_demo: bool = Query(False),
 ) -> dict:
-    """Periodic-review order-up-to recommendation with a forecast-quality gate."""
+    """Periodic-review order-up-to recommendation with a forecast-quality gate.
+
+    Omit service_level for the ABC-aware default (A items protected more)."""
     _require_enabled()
     result = qsvc.product_reorder(db, product_id, service_level=service_level,
                                   review_period_days=review_period_days,
