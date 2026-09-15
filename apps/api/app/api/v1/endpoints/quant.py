@@ -7,6 +7,7 @@ the config version for reproducibility.
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.api.deps import db_session, get_current_user, require_role
@@ -14,8 +15,15 @@ from app.core.enums import Role
 from app.models.user import User
 from app.services import quant
 from app.services.quant import service as qsvc
+from app.services.quant import substitutes as qsubs
 
 router = APIRouter(tags=["quant"])
+
+
+class SubstituteIn(BaseModel):
+    substitute_id: int
+    preference_rank: int = Field(1, ge=1)
+    note: str | None = Field(None, max_length=255)
 
 
 def _require_enabled() -> None:
@@ -136,6 +144,48 @@ def landed_cost(
             "base_unit_cost": float(prod.purchase_cost) if prod.purchase_cost else None,
             **sup.estimate_landed_cost(
                 float(prod.purchase_cost) if prod.purchase_cost else None)}
+
+
+@router.get("/quant/products/{product_id}/substitutes")
+def get_substitutes(
+    product_id: int,
+    db: Session = Depends(db_session),
+    _: User = Depends(get_current_user),
+) -> dict:
+    """A product's substitutes with live on-hand stock (substitute cover)."""
+    _require_enabled()
+    return qsubs.substitute_availability(db, product_id)
+
+
+@router.post("/quant/products/{product_id}/substitutes")
+def add_substitute(
+    product_id: int,
+    payload: SubstituteIn,
+    db: Session = Depends(db_session),
+    _: User = Depends(require_role(Role.STAFF)),
+) -> dict:
+    """Record an acceptable alternative for a product."""
+    _require_enabled()
+    r = qsubs.add_substitute(db, product_id, payload.substitute_id,
+                             preference_rank=payload.preference_rank, note=payload.note)
+    if r["status"] == "ERROR":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, r["error"])
+    return r
+
+
+@router.delete("/quant/products/{product_id}/substitutes/{substitute_id}")
+def remove_substitute(
+    product_id: int,
+    substitute_id: int,
+    db: Session = Depends(db_session),
+    _: User = Depends(require_role(Role.STAFF)),
+) -> dict:
+    """Remove a substitute link."""
+    _require_enabled()
+    r = qsubs.remove_substitute(db, product_id, substitute_id)
+    if r["status"] == "NOT_FOUND":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "substitute link not found")
+    return r
 
 
 @router.get("/quant/suppliers/scores")

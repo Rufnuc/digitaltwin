@@ -58,6 +58,25 @@ class ProductImage(Base, TimestampMixin):
     product: Mapped[Product] = relationship(back_populates="images")
 
 
+class ProductSubstitute(Base, TimestampMixin, ProvenanceMixin):
+    """An acceptable alternative for a product — e.g. the same part from a different
+    brand/origin (a Turkey piston for a China one). Directional: `product_id` can be
+    served by `substitute_id`. Lower `preference_rank` = more preferred alternative."""
+
+    __tablename__ = "product_substitutes"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    product_id: Mapped[int] = mapped_column(
+        ForeignKey("products.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    substitute_id: Mapped[int] = mapped_column(
+        ForeignKey("products.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    preference_rank: Mapped[int] = mapped_column(Integer, default=1)
+    # e.g. "different brand", "Turkey origin", "OEM equivalent".
+    note: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+
 class ProductPriceHistory(Base, TimestampMixin):
     """Append-only record of selling/purchase price changes over time."""
 

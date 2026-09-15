@@ -24,6 +24,7 @@ from app.services.quant import demand as dmd
 from app.services.quant import leadtime as lt
 from app.services.quant import reorder as ro
 from app.services.quant import simulation as sim
+from app.services.quant import substitutes as subs
 from app.services.quant import supplier as sup
 
 
@@ -236,6 +237,8 @@ def product_simulation(db: Session, product_id: int, as_of: date | None = None,
         "demand_vmr": spec["vmr"],
         "simulation": result,
         "stockout_cost": stockout_cost,
+        # If a stockout is possible, in-stock substitutes soften the real risk.
+        "substitute_cover": subs.substitute_availability(db, product_id),
         "config_version": config_version(),
         "provenance": "FORECAST",
     }

@@ -657,8 +657,48 @@ def _quant_stockout_risk(db: Session, product_id=None, product=None,
         "expected_cycle_service_level": s["expected_cycle_service_level"],
         "expected_lost_units": s["expected_lost_units"],
         "stockout_cost": r["stockout_cost"],
-        "note": "Monte-Carlo FORECAST under the current reorder policy; not a certainty.",
+        "substitute_cover": {
+            "in_stock_substitutes": r["substitute_cover"]["substitutes_in_stock"],
+            "total_substitute_on_hand": r["substitute_cover"]["total_substitute_on_hand"],
+            "has_cover": r["substitute_cover"]["has_cover"],
+        },
+        "note": "Monte-Carlo FORECAST under the current reorder policy; not a "
+                "certainty. If substitutes are in stock the real risk is lower.",
     }
+
+
+def _quant_substitutes(db: Session, product_id=None, product=None) -> dict:
+    """A product's acceptable alternatives and their current stock."""
+    from app.services.quant import substitutes as subs
+
+    pid = _resolve_product_id(db, product_id, product)
+    if pid is None:
+        return {"error": "product not found; give a product id, code or name"}
+    av = subs.substitute_availability(db, pid)
+    return {
+        "product_id": pid, "substitute_count": av["substitute_count"],
+        "substitutes_in_stock": av["substitutes_in_stock"],
+        "total_substitute_on_hand": av["total_substitute_on_hand"],
+        "substitutes": [
+            {"name": s["substitute_name"], "code": s["substitute_code"],
+             "on_hand": s["on_hand"], "note": s["note"],
+             "preference_rank": s["preference_rank"]}
+            for s in av["substitutes"]
+        ],
+    }
+
+
+def _add_substitute(db: Session, product=None, substitute=None,
+                    note: str | None = None, preference_rank: int = 1) -> dict:
+    """Record that one product may be substituted by another (mutating action)."""
+    from app.services.quant import substitutes as subs
+
+    pid = _resolve_product_id(db, product=product)
+    sid = _resolve_product_id(db, product=substitute)
+    if pid is None or sid is None:
+        return {"error": "give both the product and its substitute by code or name"}
+    return subs.add_substitute(db, pid, sid, preference_rank=int(preference_rank),
+                               note=note)
 
 
 def _quant_reorder_plan(db: Session, service_level: float = 0.95) -> dict:
@@ -959,6 +999,32 @@ TOOLS: list[ToolDef] = [
         }},
         _quant_portfolio_risk, provenance="FORECAST", mutating=False,
         min_role=Role.VIEWER.value,
+    ),
+    ToolDef(
+        "get_substitutes",
+        "A product's acceptable alternatives (e.g. same part, different brand or "
+        "origin) and how much of each is in stock now. Use for 'what can replace X', "
+        "'is there an alternative to X', or when X is low. Identify the product by "
+        "id, code, or name.",
+        {"type": "object", "properties": {
+            "product_id": {"type": ["integer", "string"]},
+            "product": {"type": "string", "description": "product code or name"},
+        }},
+        _quant_substitutes, provenance="REAL", mutating=False,
+        min_role=Role.VIEWER.value,
+    ),
+    ToolDef(
+        "add_substitute",
+        "Record that one product can be substituted by another (e.g. 'a Turkey "
+        "piston can replace the China piston'). Give both products by code or name, "
+        "an optional note (brand/origin) and preference rank (1 = most preferred).",
+        {"type": "object", "properties": {
+            "product": {"type": "string", "description": "the product being replaced"},
+            "substitute": {"type": "string", "description": "the acceptable alternative"},
+            "note": {"type": "string"},
+            "preference_rank": {"type": "integer", "minimum": 1},
+        }, "required": ["product", "substitute"]},
+        _add_substitute, provenance="REAL", mutating=True, min_role=Role.STAFF.value,
     ),
     ToolDef(
         "get_landed_cost",
