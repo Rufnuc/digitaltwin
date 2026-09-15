@@ -22,6 +22,7 @@ from app.services.quant import classification as cls
 from app.services.quant import config_version
 from app.services.quant import demand as dmd
 from app.services.quant import forecast as fc
+from app.services.quant import leadtime as lt
 from app.services.quant import reorder as ro
 
 
@@ -110,14 +111,23 @@ def product_reorder(db: Session, product_id: int, as_of: date | None = None,
                 "product_name": prod.name, "missing_fields": missing,
                 "warnings": ["MISSING_INPUTS"]}
 
+    # Lead-time statistics from realised receipts; the point estimate on the
+    # product is the fallback when there is not enough receipt history.
+    lt_stats = lt.product_lead_time_stats(
+        db, product_id, point_estimate=float(lead), include_demo=include_demo
+    )
+    mean_lead = lt_stats["mean_days"] if lt_stats["mean_days"] is not None else float(lead)
+    std_lead = lt_stats["std_days"] or 0.0
+
     rec = ro.reorder_recommendation(
         weekly_mean=weekly_mean, weekly_std=weekly_std,
         inventory_position=_on_hand(db, product_id),
-        mean_lead_time_days=float(lead), review_period_days=review_period_days,
+        mean_lead_time_days=float(mean_lead), review_period_days=review_period_days,
         service_level=service_level, unit_cost=float(prod.purchase_cost),
         uncertainty_ratio=_uncertainty_ratio(forecast),
         wape=diagnostics.get("wape"), validation_status=diagnostics.get("validation_status"),
         moq=1.0, order_multiple=float(prod.reorder_quantity or 1) if prod.reorder_quantity else 1.0,
+        std_lead_time_days=float(std_lead),
     )
     eoq = ro.eoq(
         annual_demand_units=round(weekly_mean * 52, 4),
@@ -130,6 +140,7 @@ def product_reorder(db: Session, product_id: int, as_of: date | None = None,
         "product_name": prod.name,
         "pattern": pattern["pattern"],
         "recommendation": rec,
+        "lead_time": lt_stats,
         "eoq": eoq,
         "diagnostics": diagnostics,
         "config_version": config_version(),

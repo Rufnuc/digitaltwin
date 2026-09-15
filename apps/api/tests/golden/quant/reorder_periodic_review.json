@@ -1,0 +1,19 @@
+{
+  "estimated_order_cost": 27344.96,
+  "expected_demand_over_horizon": 210.0,
+  "inventory_position": 0.0,
+  "order_up_to_level": 273.4496,
+  "policy": "ORDER_UP_TO",
+  "protection_horizon_days": 21,
+  "recommendation_status": "READY",
+  "recommended_order_quantity": 273.4496,
+  "recommended_order_quantity_raw": 273.4496,
+  "safety_stock": 63.4496,
+  "service_level": 0.95,
+  "sigma_demand_component": 24.2487,
+  "sigma_lead_time_component": 30.0,
+  "sigma_over_horizon": 38.5746,
+  "std_lead_time_days": 3.0,
+  "warnings": [],
+  "z": 1.6449
+}

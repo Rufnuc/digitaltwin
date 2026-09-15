@@ -84,13 +84,24 @@ def reorder_recommendation(
     service_level: float = DEFAULT_SERVICE_LEVEL, unit_cost: float | None = None,
     uncertainty_ratio: float | None = None, wape: float | None = None,
     validation_status: str | None = None, moq: float = 1.0, order_multiple: float = 1.0,
+    std_lead_time_days: float = 0.0,
 ) -> dict:
-    """Periodic-review order-up-to recommendation with a forecast-quality gate."""
+    """Periodic-review order-up-to recommendation with a forecast-quality gate.
+
+    Safety stock covers both demand and lead-time variability over the protection
+    horizon (spec v4 §7):
+        sigma_over = sqrt(H * sigma_d^2 + d_bar^2 * sigma_LT^2)
+    where H is the protection horizon in days, sigma_d/d_bar are the daily demand
+    std/mean, and sigma_LT is the lead-time std in days. With std_lead_time_days=0
+    this reduces to the demand-only term.
+    """
     horizon = protection_horizon_days(mean_lead_time_days, review_period_days)
     daily_mean = weekly_mean / 7.0
     daily_std = weekly_std / math.sqrt(7.0)
     demand_over = daily_mean * horizon
-    sigma_over = daily_std * math.sqrt(horizon)
+    sigma_demand = daily_std * math.sqrt(horizon)
+    sigma_leadtime = daily_mean * max(std_lead_time_days, 0.0)
+    sigma_over = math.sqrt(sigma_demand ** 2 + sigma_leadtime ** 2)
 
     ss = safety_stock(sigma_over, service_level)
     order_up_to = demand_over + ss
@@ -126,6 +137,9 @@ def reorder_recommendation(
         "z": round(norm_ppf(service_level), 4),
         "expected_demand_over_horizon": round(demand_over, 4),
         "sigma_over_horizon": round(sigma_over, 4),
+        "sigma_demand_component": round(sigma_demand, 4),
+        "sigma_lead_time_component": round(sigma_leadtime, 4),
+        "std_lead_time_days": round(std_lead_time_days, 4),
         "safety_stock": round(ss, 4),
         "order_up_to_level": round(order_up_to, 4),
         "inventory_position": inventory_position,
