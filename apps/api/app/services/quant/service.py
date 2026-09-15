@@ -19,7 +19,7 @@ from app.models.warehouse import StockLot
 from app.services.quant import bridge as br
 from app.services.quant import cache as qcache
 from app.services.quant import classification as cls
-from app.services.quant import config_version
+from app.services.quant import coldstart, config_version
 from app.services.quant import demand as dmd
 from app.services.quant import leadtime as lt
 from app.services.quant import reorder as ro
@@ -83,6 +83,34 @@ def product_forecast(db: Session, product_id: int, as_of: date | None = None,
         return {"status": "NOT_FOUND", "product_id": product_id}
     series = dmd.product_weekly_demand(db, product_id, as_of, include_demo=include_demo)
     pattern = cls.classify_pattern(series["units"])
+
+    # Cold start: a product with no sales history gets a low-confidence peer prior
+    # (same category) instead of a blank, if enabled and peers exist (spec v5 §3).
+    from app.core.config import settings
+    if pattern["pattern"] == "NO_EVIDENCE" and settings.QUANT_COLD_START_ENABLED:
+        prior = coldstart.cold_start_prior(db, prod, as_of=as_of, horizon=horizon,
+                                           include_demo=include_demo)
+        if prior["status"] == "OK":
+            fcast = prior["forecast"]
+            e_week = fcast["point_values"][0]
+            events = br.product_daily_events(db, product_id, as_of, include_demo=include_demo)
+            bridge = br.daily_bridge(e_week, events, date.fromisoformat(series["as_of"]))
+            return {
+                "status": "COLD_START",
+                "product_id": product_id, "product_code": prod.code,
+                "product_name": prod.name, "as_of": series["as_of"],
+                "demand": {"weeks_observed": len(series["units"]),
+                           "total_units": series["total_units"], "stats": series["stats"]},
+                "classification": pattern,
+                "forecast": fcast,
+                "daily_bridge": bridge,
+                "diagnostics": {"validation_status": "INSUFFICIENT_DATA", "wape": None},
+                "cold_start": {"peer_count": prior["peer_count"],
+                               "expected_weekly_demand": prior["expected_weekly_demand"]},
+                "config_version": config_version(),
+                "provenance": "ESTIMATED",
+            }
+
     forecast = qcache.cached_forecast(series["units"], pattern["pattern"],
                                       horizon=horizon, seed=seed)
     diagnostics = qcache.cached_backtest(series["units"], pattern["pattern"], seed=seed)

@@ -71,6 +71,9 @@ class Settings(BaseSettings):
     QUANT_SERVICE_LEVEL_B: float = 0.95
     QUANT_SERVICE_LEVEL_C: float = 0.90
     QUANT_SERVICE_LEVEL_DEFAULT: float = 0.95  # unknown / no-evidence class
+    # Cold-start: give a no-sales-history product a low-confidence peer-based demand
+    # prior (same category) instead of a blank (spec v5 §3). On by user request.
+    QUANT_COLD_START_ENABLED: bool = True
 
     # Landed-cost uplifts as a % of the supplier's base cost (spec v4 §9). These are
     # PLACEHOLDERS until an import/clearing expert supplies real figures — see
