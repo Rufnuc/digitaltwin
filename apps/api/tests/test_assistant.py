@@ -106,6 +106,13 @@ def test_reorder_plan_tool_returns_portfolio(db):
     assert 0.0 <= risk["expected_fill_rate"] <= 1.0
     assert risk["stockout_cost"] is not None
 
+    # Budget-constrained plan is reachable and respects the budget.
+    plan = execute_tool(db, "get_budget_reorder_plan", {"budget": 1_000_000})
+    assert plan["allocated_spend"] <= plan["budget"] + 1e-6
+    assert "buy" in plan
+    # A zero/absent budget is rejected, not guessed.
+    assert "error" in execute_tool(db, "get_budget_reorder_plan", {"budget": 0})
+
 
 def test_assistant_writes_audit_log(db):
     seed(db)

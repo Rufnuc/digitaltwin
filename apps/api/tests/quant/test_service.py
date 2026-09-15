@@ -124,6 +124,35 @@ def test_margin_at_risk_priority(db):
     assert codes.index("HIGHM") < codes.index("LOWM")
 
 
+def test_budget_reorder_plan(db):
+    cust = Customer(code="CB", name="BudgetCo")
+    db.add(cust)
+    # Same demand + cost, so equal restock cost, but HI protects far more margin.
+    hi = _product(db, "BHI", cost=100.0, price=1000.0, lead=7)
+    lo = _product(db, "BLO", cost=100.0, price=140.0, lead=7)
+    db.commit()
+    start = date.today() - timedelta(weeks=20)
+    _seed_sales(db, hi.id, cust.id, weekly_units=10, start=start, weeks=20)
+    _seed_sales(db, lo.id, cust.id, weekly_units=10, start=start, weeks=20)
+
+    scan = qsvc.reorder_scan(db)
+    ready = [i for i in scan["items"] if i["recommendation_status"] == "READY"]
+    assert len(ready) == 2
+    one_cost = ready[0]["estimated_order_cost"]
+
+    # Budget for only one item -> fund the higher margin-at-risk (HI), defer LO.
+    plan = qsvc.budget_reorder_plan(db, budget=one_cost)
+    assert [f["product_code"] for f in plan["funded"]] == ["BHI"]
+    assert [d["product_code"] for d in plan["deferred"]] == ["BLO"]
+    assert plan["allocated_spend"] <= plan["budget"] + 1e-6
+    assert plan["deferred"][0]["deferred_reason"] == "BUDGET_CONSTRAINT"
+
+    # Ample budget funds both and spends within budget.
+    big = qsvc.budget_reorder_plan(db, budget=one_cost * 5)
+    assert len(big["funded"]) == 2 and not big["deferred"]
+    assert big["remaining_budget"] >= 0
+
+
 def test_reorder_is_abc_aware(db):
     cust = Customer(code="CA", name="AbcCo")
     db.add(cust)

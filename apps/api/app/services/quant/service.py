@@ -321,6 +321,83 @@ def reorder_scan(db: Session, as_of: date | None = None,
     }
 
 
+def budget_reorder_plan(db: Session, budget: float, as_of: date | None = None,
+                        service_level: float | None = None,
+                        include_demo: bool = False) -> dict:
+    """Single-cycle budget-constrained reorder allocation (spec v4 §7, v5 §2.3).
+
+    Given a restock budget, choose which READY reorders to fund to protect the most
+    gross margin. Deterministic greedy: rank by value density (margin at risk per
+    naira of cost), tie-broken by margin at risk then product id, and fund each
+    item fully if it fits the remaining budget — re-checking the remaining budget
+    at every step (no random/round-robin allocation). Items that don't fit are
+    deferred with a reason; forecast-gated items stay in needs_review. This does
+    not claim optimality (indivisible order quantities); it is a transparent,
+    reproducible priority allocation.
+    """
+    scan = reorder_scan(db, as_of=as_of, service_level=service_level,
+                        include_demo=include_demo)
+    ready = [i for i in scan["items"] if i["recommendation_status"] == "READY"
+             and (i["estimated_order_cost"] or 0) > 0]
+
+    def _density(i: dict) -> float:
+        mar = i.get("margin_at_risk_over_horizon") or 0.0
+        cost = i["estimated_order_cost"] or 0.0
+        return (mar / cost) if cost > 0 else 0.0
+
+    ranked = sorted(
+        ready,
+        key=lambda i: (_density(i), i.get("margin_at_risk_over_horizon") or 0.0,
+                       -i["product_id"]),
+        reverse=True,
+    )
+
+    budget = float(budget or 0.0)
+    remaining = budget
+    funded: list[dict] = []
+    deferred: list[dict] = []
+    for i in ranked:
+        cost = i["estimated_order_cost"] or 0.0
+        entry = {
+            "product_id": i["product_id"], "product_code": i["product_code"],
+            "product_name": i["product_name"], "abc_class": i.get("abc_class"),
+            "recommended_order_quantity": i["recommended_order_quantity"],
+            "estimated_order_cost": cost,
+            "margin_at_risk_protected": i.get("margin_at_risk_over_horizon"),
+            "value_density": round(_density(i), 6),
+        }
+        if cost <= remaining + 1e-9:
+            remaining -= cost
+            funded.append(entry)
+        else:
+            entry["deferred_reason"] = "BUDGET_CONSTRAINT"
+            deferred.append(entry)
+
+    spent = round(budget - remaining, 2)
+    protected = round(sum(f["margin_at_risk_protected"] or 0.0 for f in funded), 2)
+    unfunded_risk = round(sum(d["margin_at_risk_protected"] or 0.0 for d in deferred), 2)
+    return {
+        "status": "OK",
+        "as_of": (as_of or date.today()).isoformat(),
+        "budget": round(budget, 2),
+        "allocated_spend": spent,
+        "remaining_budget": round(remaining, 2),
+        "margin_at_risk_protected": protected,
+        "margin_at_risk_unfunded": unfunded_risk,
+        "funded": funded,
+        "deferred": deferred,
+        "needs_review_count": scan["counts"]["needs_review"],
+        "assumptions": [
+            "Objective: protect the most gross margin at risk under the budget.",
+            "Order quantities are indivisible; this is a greedy priority allocation, "
+            "not a claim of optimality.",
+        ],
+        "service_level": service_level,
+        "config_version": config_version(),
+        "provenance": "MODEL_OUTPUT",
+    }
+
+
 def abc_report(db: Session, as_of: date | None = None, include_demo: bool = False) -> dict:
     as_of = as_of or date.today()
     products = db.scalars(select(Product).where(Product.is_active.is_(True))).all()

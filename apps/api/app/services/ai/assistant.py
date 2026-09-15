@@ -39,7 +39,9 @@ synthesise it into 4-6 concrete insights AND prioritised recommendations — do 
 stop at a KPI list. Pull in demand forecasts (`get_demand_forecast`), reorder needs \
 (`get_reorder_recommendation`) or ABC (`get_abc_classification`) when relevant. For \
 "what should I reorder / restock" or a purchase plan, call `get_reorder_plan` (the \
-whole-catalogue reorder brain) rather than checking products one by one. For "will \
+whole-catalogue reorder brain) rather than checking products one by one. When the \
+user gives a restock budget ("I have ₦X to restock"), call `get_budget_reorder_plan` \
+with that budget and report what to buy and the margin it protects. For "will \
 I run out of X", "how safe is my stock", or service-level questions, call \
 `get_stockout_risk` (a Monte-Carlo simulation) and report it as a risk, not a \
 certainty.

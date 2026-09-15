@@ -538,6 +538,37 @@ def _quant_abc(db: Session) -> dict:
             "top": r.get("items", [])[:15], "new_products": r.get("new_products", [])[:10]}
 
 
+def _quant_budget_plan(db: Session, budget: float = 0.0, service_level=None) -> dict:
+    """Budget-constrained reorder plan: what to buy with a fixed restock budget."""
+    from app.services.quant import service as qsvc
+
+    if not budget or float(budget) <= 0:
+        return {"error": "give a positive restock budget (in Naira)"}
+    sl = float(service_level) if service_level is not None else None
+    plan = qsvc.budget_reorder_plan(db, float(budget), service_level=sl)
+    return {
+        "budget": plan["budget"], "allocated_spend": plan["allocated_spend"],
+        "remaining_budget": plan["remaining_budget"],
+        "margin_at_risk_protected": plan["margin_at_risk_protected"],
+        "margin_at_risk_unfunded": plan["margin_at_risk_unfunded"],
+        "buy": [
+            {"product": f["product_name"], "code": f["product_code"],
+             "abc_class": f["abc_class"], "quantity": f["recommended_order_quantity"],
+             "cost": f["estimated_order_cost"],
+             "margin_protected": f["margin_at_risk_protected"]}
+            for f in plan["funded"]
+        ][:25],
+        "skipped_no_budget": [
+            {"product": d["product_name"], "code": d["product_code"],
+             "cost": d["estimated_order_cost"],
+             "margin_at_risk": d["margin_at_risk_protected"]}
+            for d in plan["deferred"]
+        ][:15],
+        "needs_review_count": plan["needs_review_count"],
+        "assumptions": plan["assumptions"],
+    }
+
+
 def _quant_stockout_risk(db: Session, product_id=None, product=None,
                          horizon_days: int = 90) -> dict:
     """Simulated stockout risk / service level for one product under its policy."""
@@ -847,6 +878,21 @@ TOOLS: list[ToolDef] = [
             "service_level": {"type": "number", "minimum": 0.5, "maximum": 0.999},
         }},
         _quant_reorder_plan, provenance="MODEL_OUTPUT", mutating=False,
+        min_role=Role.VIEWER.value,
+    ),
+    ToolDef(
+        "get_budget_reorder_plan",
+        "Budget-constrained purchase plan — use when the user gives a restock "
+        "budget ('I have ₦2m to restock, what should I buy'). Allocates the budget "
+        "to protect the most gross margin at risk: returns what to buy (product, "
+        "quantity, cost), total spend, margin protected, and what was skipped for "
+        "lack of budget. Deterministic priority allocation, not a claim of optimality.",
+        {"type": "object", "properties": {
+            "budget": {"type": "number", "minimum": 0,
+                       "description": "restock budget in Naira"},
+            "service_level": {"type": "number", "minimum": 0.5, "maximum": 0.999},
+        }, "required": ["budget"]},
+        _quant_budget_plan, provenance="MODEL_OUTPUT", mutating=False,
         min_role=Role.VIEWER.value,
     ),
     ToolDef(

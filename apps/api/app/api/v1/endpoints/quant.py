@@ -86,6 +86,20 @@ def simulate(
     return result
 
 
+@router.get("/quant/reorder-plan/budget")
+def budget_plan(
+    db: Session = Depends(db_session),
+    _: User = Depends(require_role(Role.ANALYST)),
+    budget: float = Query(..., gt=0, description="restock budget (Naira)"),
+    service_level: float | None = Query(None, ge=0.5, le=0.999),
+    include_demo: bool = Query(False),
+) -> dict:
+    """Budget-constrained reorder allocation: protect the most gross margin at risk."""
+    _require_enabled()
+    return qsvc.budget_reorder_plan(db, budget, service_level=service_level,
+                                    include_demo=include_demo)
+
+
 @router.get("/quant/classification")
 def classification(
     db: Session = Depends(db_session),
