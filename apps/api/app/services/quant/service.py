@@ -25,6 +25,7 @@ from app.services.quant import forecast as fc
 from app.services.quant import leadtime as lt
 from app.services.quant import reorder as ro
 from app.services.quant import simulation as sim
+from app.services.quant import supplier as sup
 
 
 def _on_hand(db: Session, product_id: int) -> int:
@@ -393,6 +394,25 @@ def budget_reorder_plan(db: Session, budget: float, as_of: date | None = None,
             "not a claim of optimality.",
         ],
         "service_level": service_level,
+        "config_version": config_version(),
+        "provenance": "MODEL_OUTPUT",
+    }
+
+
+def supplier_scores(db: Session, include_demo: bool = False) -> dict:
+    """Risk-adjusted score for every active supplier, best first (spec §6/§9)."""
+    from app.models.supplier import Supplier
+    suppliers = db.scalars(
+        select(Supplier).where(Supplier.status == "ACTIVE")
+    ).all()
+    rows = [sup.score_supplier(db, s, include_demo=include_demo) for s in suppliers]
+    scored = [r for r in rows if r["score"] is not None]
+    unscored = [r for r in rows if r["score"] is None]
+    scored.sort(key=lambda r: r["score"], reverse=True)
+    return {
+        "status": "OK",
+        "suppliers": scored + unscored,
+        "counts": {"scored": len(scored), "insufficient_data": len(unscored)},
         "config_version": config_version(),
         "provenance": "MODEL_OUTPUT",
     }

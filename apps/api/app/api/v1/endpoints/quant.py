@@ -100,6 +100,17 @@ def budget_plan(
                                     include_demo=include_demo)
 
 
+@router.get("/quant/suppliers/scores")
+def supplier_scores(
+    db: Session = Depends(db_session),
+    _: User = Depends(require_role(Role.ANALYST)),
+    include_demo: bool = Query(False),
+) -> dict:
+    """Risk-adjusted supplier scores from reliability + realised lead times."""
+    _require_enabled()
+    return qsvc.supplier_scores(db, include_demo=include_demo)
+
+
 @router.get("/quant/classification")
 def classification(
     db: Session = Depends(db_session),

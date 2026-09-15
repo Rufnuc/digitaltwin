@@ -538,6 +538,27 @@ def _quant_abc(db: Session) -> dict:
             "top": r.get("items", [])[:15], "new_products": r.get("new_products", [])[:10]}
 
 
+def _quant_supplier_scores(db: Session) -> dict:
+    """Risk-adjusted supplier scores from reliability and realised lead times."""
+    from app.services.quant import service as qsvc
+
+    r = qsvc.supplier_scores(db)
+    return {
+        "counts": r["counts"],
+        "suppliers": [
+            {"supplier": s["supplier_name"], "code": s["supplier_code"],
+             "score": s["score"], "supplier_risk": s["supplier_risk"],
+             "reliability": s["components"]["reliability"],
+             "lead_time_mean_days": s["components"]["lead_time_mean_days"],
+             "lead_time_risk": s["components"]["lead_time_risk"],
+             "status": s["status"]}
+            for s in r["suppliers"]
+        ][:25],
+        "note": "Composite of configured reliability and realised lead-time "
+                "consistency/length; weights are assumptions.",
+    }
+
+
 def _quant_budget_plan(db: Session, budget: float = 0.0, service_level=None) -> dict:
     """Budget-constrained reorder plan: what to buy with a fixed restock budget."""
     from app.services.quant import service as qsvc
@@ -878,6 +899,16 @@ TOOLS: list[ToolDef] = [
             "service_level": {"type": "number", "minimum": 0.5, "maximum": 0.999},
         }},
         _quant_reorder_plan, provenance="MODEL_OUTPUT", mutating=False,
+        min_role=Role.VIEWER.value,
+    ),
+    ToolDef(
+        "get_supplier_scores",
+        "Risk-adjusted supplier scores (0-1, higher is better) and supplier risk, "
+        "built from configured reliability and realised lead-time consistency and "
+        "length. Use for 'which supplier is most reliable', 'who should I buy from', "
+        "or supplier-comparison questions. Weights are stated assumptions.",
+        {"type": "object", "properties": {}},
+        _quant_supplier_scores, provenance="MODEL_OUTPUT", mutating=False,
         min_role=Role.VIEWER.value,
     ),
     ToolDef(
