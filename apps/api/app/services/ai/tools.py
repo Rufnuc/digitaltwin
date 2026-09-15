@@ -538,6 +538,31 @@ def _quant_abc(db: Session) -> dict:
             "top": r.get("items", [])[:15], "new_products": r.get("new_products", [])[:10]}
 
 
+def _quant_stockout_risk(db: Session, product_id=None, product=None,
+                         horizon_days: int = 90) -> dict:
+    """Simulated stockout risk / service level for one product under its policy."""
+    from app.services.quant import service as qsvc
+
+    pid = _resolve_product_id(db, product_id, product)
+    if pid is None:
+        return {"error": "product not found; give a product id, code or name"}
+    r = qsvc.product_simulation(db, pid, horizon_days=int(horizon_days))
+    if r.get("status") != "OK":
+        return {"product": r.get("product_name"), "status": r.get("status"),
+                "missing_fields": r.get("missing_fields")}
+    s = r["simulation"]
+    return {
+        "product": r.get("product_name"), "abc_class": r.get("abc_class"),
+        "horizon_days": s["horizon_days"], "iterations": s["iterations"],
+        "probability_of_stockout": s["probability_of_stockout"],
+        "expected_fill_rate": s["expected_fill_rate"],
+        "expected_cycle_service_level": s["expected_cycle_service_level"],
+        "expected_lost_units": s["expected_lost_units"],
+        "stockout_cost": r["stockout_cost"],
+        "note": "Monte-Carlo FORECAST under the current reorder policy; not a certainty.",
+    }
+
+
 def _quant_reorder_plan(db: Session, service_level: float = 0.95) -> dict:
     """Portfolio-wide reorder plan: which products to order now and how much."""
     from app.services.quant import service as qsvc
@@ -822,6 +847,22 @@ TOOLS: list[ToolDef] = [
             "service_level": {"type": "number", "minimum": 0.5, "maximum": 0.999},
         }},
         _quant_reorder_plan, provenance="MODEL_OUTPUT", mutating=False,
+        min_role=Role.VIEWER.value,
+    ),
+    ToolDef(
+        "get_stockout_risk",
+        "Simulated stockout risk for one product — runs a daily Monte-Carlo of the "
+        "reorder policy and returns the probability of a stockout, expected fill "
+        "rate, cycle service level, expected lost units and the stockout cost "
+        "(lost margin). Use for 'will I run out of X', 'how safe is my stock of X', "
+        "or service-level questions. Identify the product by id, code, or name; "
+        "these are FORECASTS with uncertainty.",
+        {"type": "object", "properties": {
+            "product_id": {"type": ["integer", "string"]},
+            "product": {"type": "string", "description": "product code or name"},
+            "horizon_days": {"type": "integer", "minimum": 7, "maximum": 365},
+        }},
+        _quant_stockout_risk, provenance="FORECAST", mutating=False,
         min_role=Role.VIEWER.value,
     ),
 ]

@@ -1,0 +1,69 @@
+{
+  "distributions": {
+    "demand_units": {
+      "max": 87.0,
+      "mean": 60.168,
+      "min": 36.0,
+      "p05": 47.0,
+      "p25": 55.0,
+      "p50": 60.0,
+      "p75": 66.0,
+      "p95": 73.0
+    },
+    "ending_on_hand": {
+      "max": 13.0,
+      "mean": 2.758,
+      "min": 0.0,
+      "p05": 0.0,
+      "p25": 0.0,
+      "p50": 2.0,
+      "p75": 5.0,
+      "p95": 8.0
+    },
+    "fill_rate": {
+      "max": 1.0,
+      "mean": 0.9847,
+      "min": 0.8413,
+      "p05": 0.9122,
+      "p25": 0.9846,
+      "p50": 1.0,
+      "p75": 1.0,
+      "p95": 1.0
+    },
+    "lost_units": {
+      "max": 0.0,
+      "mean": 0.0,
+      "min": 0.0,
+      "p05": 0.0,
+      "p25": 0.0,
+      "p50": 0.0,
+      "p75": 0.0,
+      "p95": 0.0
+    },
+    "stockout_days": {
+      "max": 12.0,
+      "mean": 2.772,
+      "min": 0.0,
+      "p05": 0.0,
+      "p25": 1.0,
+      "p50": 3.0,
+      "p75": 4.0,
+      "p95": 7.0
+    }
+  },
+  "expected_backordered_units": 1.012,
+  "expected_cycle_service_level": 0.6696,
+  "expected_fill_rate": 0.984653,
+  "expected_lost_units": 0.0,
+  "horizon_days": 30,
+  "iterations": 500,
+  "mode": "backorder",
+  "policy": {
+    "lead_time_days": 2,
+    "order_up_to": 18.0,
+    "review_period_days": 7
+  },
+  "probability_of_stockout": 0.812,
+  "provenance": "FORECAST",
+  "seed": 123
+}

@@ -24,6 +24,7 @@ from app.services.quant import demand as dmd
 from app.services.quant import forecast as fc
 from app.services.quant import leadtime as lt
 from app.services.quant import reorder as ro
+from app.services.quant import simulation as sim
 
 
 def _on_hand(db: Session, product_id: int) -> int:
@@ -186,6 +187,71 @@ def product_reorder(db: Session, product_id: int, as_of: date | None = None,
         "diagnostics": diagnostics,
         "config_version": config_version(),
         "provenance": "MODEL_OUTPUT",
+    }
+
+
+def _weekly_vmr(units: list[float]) -> float:
+    """Variance-to-mean ratio of weekly demand (>=1 → overdispersed → NB)."""
+    mean, std = _weekly_stats(units)
+    if mean <= 0:
+        return 1.0
+    return round(max((std * std) / mean, 0.0), 6)
+
+
+def product_simulation(db: Session, product_id: int, as_of: date | None = None,
+                       service_level: float | None = None, review_period_days: int = 7,
+                       horizon_days: int = 90, iterations: int = 2000, seed: int = 42,
+                       mode: str = "lost_sales", include_demo: bool = False) -> dict:
+    """Daily inventory-policy Monte Carlo for one product (Phase 2).
+
+    Composes the ABC-aware reorder policy (order-up-to S), the weekly→daily bridge
+    and the demand VMR into a simulated service profile: probability of stockout,
+    fill rate, cycle service level, expected lost units and the resulting
+    stockout cost (expected lost units × unit margin, spec v4 §6).
+    """
+    reorder = product_reorder(db, product_id, as_of=as_of, service_level=service_level,
+                              review_period_days=review_period_days, include_demo=include_demo)
+    if reorder.get("status") != "OK":
+        return {"status": reorder.get("status", "INSUFFICIENT_DATA"),
+                "product_id": product_id, "product_name": reorder.get("product_name"),
+                "missing_fields": reorder.get("missing_fields"),
+                "warnings": reorder.get("warnings", ["MISSING_INPUTS"])}
+
+    series = dmd.product_weekly_demand(db, product_id, as_of, include_demo=include_demo)
+    pattern = cls.classify_pattern(series["units"])
+    forecast = fc.forecast(series["units"], pattern["pattern"], horizon=12)
+    e_week = (forecast.get("quantiles", {}).get("p50") or [0.0])[0]
+    as_of_date = date.fromisoformat(series["as_of"])
+    events = br.product_daily_events(db, product_id, as_of, include_demo=include_demo)
+    bridge = br.daily_bridge(e_week, events, as_of_date)
+    weekday_means = bridge["expected_daily_means"]
+    vmr = _weekly_vmr(series["units"])
+
+    rec = reorder["recommendation"]
+    lead_days = rec["protection_horizon_days"] - review_period_days  # ceil(mean lead)
+    result = sim.simulate_policy(
+        weekday_means=weekday_means, vmr=vmr,
+        start_weekday=(as_of_date.weekday() + 1) % 7,
+        lead_time_days=max(0, lead_days), review_period_days=review_period_days,
+        order_up_to=rec["order_up_to_level"], initial_inventory=rec["inventory_position"],
+        horizon_days=horizon_days, iterations=iterations, seed=seed, mode=mode,
+    )
+    unit_margin = reorder.get("unit_margin")
+    stockout_cost = (round(result["expected_lost_units"] * unit_margin, 2)
+                     if unit_margin is not None else None)
+    return {
+        "status": "OK",
+        "product_id": product_id,
+        "product_code": reorder["product_code"],
+        "product_name": reorder["product_name"],
+        "pattern": pattern["pattern"],
+        "abc_class": reorder.get("abc_class"),
+        "applied_service_level": reorder.get("applied_service_level"),
+        "demand_vmr": vmr,
+        "simulation": result,
+        "stockout_cost": stockout_cost,
+        "config_version": config_version(),
+        "provenance": "FORECAST",
     }
 
 

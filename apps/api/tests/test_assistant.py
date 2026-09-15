@@ -100,6 +100,12 @@ def test_reorder_plan_tool_returns_portfolio(db):
     assert fa["reorder_plan"]["counts"]["to_order_now"] >= 1
     assert any(i["code"] == "RPP" for i in fa["reorder_plan"]["order_now"])
 
+    # Simulated stockout risk is reachable from Benfieg for the same product.
+    risk = execute_tool(db, "get_stockout_risk", {"product": "RPP", "horizon_days": 60})
+    assert 0.0 <= risk["probability_of_stockout"] <= 1.0
+    assert 0.0 <= risk["expected_fill_rate"] <= 1.0
+    assert risk["stockout_cost"] is not None
+
 
 def test_assistant_writes_audit_log(db):
     seed(db)

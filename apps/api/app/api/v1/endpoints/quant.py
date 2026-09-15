@@ -62,6 +62,30 @@ def reorder(
     return result
 
 
+@router.get("/quant/products/{product_id}/simulate")
+def simulate(
+    product_id: int,
+    db: Session = Depends(db_session),
+    _: User = Depends(require_role(Role.ANALYST)),
+    service_level: float | None = Query(None, ge=0.5, le=0.999),
+    horizon_days: int = Query(90, ge=7, le=365),
+    iterations: int = Query(2000, ge=100, le=10000),
+    seed: int = Query(42, ge=0),
+    mode: str = Query("lost_sales", pattern="^(lost_sales|backorder)$"),
+    include_demo: bool = Query(False),
+) -> dict:
+    """Daily inventory-policy Monte Carlo: stockout probability, fill rate, cycle
+    service level and expected lost units under the ABC-aware reorder policy."""
+    _require_enabled()
+    result = qsvc.product_simulation(
+        db, product_id, service_level=service_level, horizon_days=horizon_days,
+        iterations=iterations, seed=seed, mode=mode, include_demo=include_demo,
+    )
+    if result["status"] == "NOT_FOUND":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Product {product_id} not found")
+    return result
+
+
 @router.get("/quant/classification")
 def classification(
     db: Session = Depends(db_session),
