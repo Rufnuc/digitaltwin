@@ -135,6 +135,76 @@ def _pct(a: np.ndarray) -> dict:
             "min": round(float(a.min()), 4), "max": round(float(a.max()), 4)}
 
 
+def simulate_portfolio(
+    specs: list[dict], *, horizon_days: int = 90, iterations: int = 500,
+    seed: int = 42, mode: str = "lost_sales",
+) -> dict:
+    """Whole-catalogue simulation with portfolio metrics (spec v5 §2.2).
+
+    Each spec is one product's policy inputs (weekday_means, vmr, start_weekday,
+    lead_time_days, review_period_days, order_up_to, initial_inventory, product_id).
+    Per iteration, every product is simulated on its own (seed, product_id, iteration)
+    stream, then aggregated into portfolio metrics; those are summarised across
+    iterations. The main probability_of_stockout is P(any product stocks out).
+    """
+    p = len(specs)
+    lam_cache = [daily_lambdas(s["weekday_means"], s["start_weekday"], horizon_days)
+                 for s in specs]
+    any_stockout, stockout_fraction, fills, csls, lost = [], [], [], [], []
+    per_product_stockout = [0] * p
+    for it in range(iterations):
+        tot_demand = tot_fulfilled = tot_lost = 0.0
+        cyc_ok = cyc_tot = 0.0
+        prod_stockouts = 0
+        for j, s in enumerate(specs):
+            rng = np.random.default_rng([seed, s["product_id"], it])
+            demand = draw_demand(lam_cache[j], s["vmr"], rng)
+            r = run_once(demand, lead_time_days=s["lead_time_days"],
+                         review_period_days=s["review_period_days"],
+                         order_up_to=s["order_up_to"],
+                         initial_inventory=s["initial_inventory"], mode=mode)
+            if r["stockout_event"]:
+                prod_stockouts += 1
+                per_product_stockout[j] += 1
+            tot_demand += r["demand_units"]
+            tot_fulfilled += r["fulfilled_units"]
+            tot_lost += r["lost_units"]
+            cyc_ok += r["cycle_service_level"] * r["total_cycles"]
+            cyc_tot += r["total_cycles"]
+        any_stockout.append(1 if prod_stockouts > 0 else 0)
+        stockout_fraction.append(prod_stockouts / p if p else 0.0)
+        fills.append(tot_fulfilled / tot_demand if tot_demand > _EPS else 1.0)
+        csls.append(cyc_ok / cyc_tot if cyc_tot > _EPS else 1.0)
+        lost.append(tot_lost)
+
+    arr = {k: np.asarray(v, dtype=float) for k, v in
+           {"any_stockout": any_stockout, "stockout_fraction": stockout_fraction,
+            "fill_rate": fills, "cycle_service_level": csls, "lost_units": lost}.items()}
+    worst = sorted(
+        ({"product_id": s["product_id"],
+          "probability_of_stockout": round(per_product_stockout[j] / iterations, 4)}
+         for j, s in enumerate(specs)),
+        key=lambda d: d["probability_of_stockout"], reverse=True,
+    )[:10]
+    return {
+        "iterations": iterations, "seed": seed, "horizon_days": horizon_days,
+        "mode": mode, "product_count": p,
+        "probability_of_any_stockout": round(float(arr["any_stockout"].mean()), 6),
+        "expected_stockout_product_fraction": round(float(arr["stockout_fraction"].mean()), 6),
+        "expected_portfolio_fill_rate": round(float(arr["fill_rate"].mean()), 6),
+        "expected_portfolio_cycle_service_level":
+            round(float(arr["cycle_service_level"].mean()), 6),
+        "expected_total_lost_units": round(float(arr["lost_units"].mean()), 4),
+        "distributions": {
+            "stockout_product_fraction": _pct(arr["stockout_fraction"]),
+            "portfolio_fill_rate": _pct(arr["fill_rate"]),
+            "total_lost_units": _pct(arr["lost_units"]),
+        },
+        "highest_risk_products": worst,
+        "provenance": "FORECAST",
+    }
+
+
 def simulate_policy(
     *, weekday_means: list[float], vmr: float, start_weekday: int,
     lead_time_days: int, review_period_days: int, order_up_to: float,

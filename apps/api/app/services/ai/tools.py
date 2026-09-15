@@ -538,6 +538,30 @@ def _quant_abc(db: Session) -> dict:
             "top": r.get("items", [])[:15], "new_products": r.get("new_products", [])[:10]}
 
 
+def _quant_portfolio_risk(db: Session, horizon_days: int = 90) -> dict:
+    """Whole-catalogue stockout exposure from a portfolio Monte Carlo."""
+    from app.services.quant import service as qsvc
+
+    r = qsvc.portfolio_simulation(db, horizon_days=int(horizon_days), iterations=400)
+    if r.get("status") != "OK":
+        return {"status": r.get("status"), "warnings": r.get("warnings")}
+    pf = r["portfolio"]
+    return {
+        "products_simulated": r["products_simulated"],
+        "horizon_days": pf["horizon_days"],
+        "probability_any_product_stockout": pf["probability_of_any_stockout"],
+        "expected_stockout_product_fraction": pf["expected_stockout_product_fraction"],
+        "expected_portfolio_fill_rate": pf["expected_portfolio_fill_rate"],
+        "expected_portfolio_cycle_service_level": pf["expected_portfolio_cycle_service_level"],
+        "highest_risk_products": [
+            {"product": w.get("product_name"), "probability_of_stockout":
+             w["probability_of_stockout"]}
+            for w in pf["highest_risk_products"]
+        ],
+        "note": "Monte-Carlo FORECAST across the catalogue; not a certainty.",
+    }
+
+
 def _quant_supplier_scores(db: Session) -> dict:
     """Risk-adjusted supplier scores from reliability and realised lead times."""
     from app.services.quant import service as qsvc
@@ -899,6 +923,19 @@ TOOLS: list[ToolDef] = [
             "service_level": {"type": "number", "minimum": 0.5, "maximum": 0.999},
         }},
         _quant_reorder_plan, provenance="MODEL_OUTPUT", mutating=False,
+        min_role=Role.VIEWER.value,
+    ),
+    ToolDef(
+        "get_portfolio_stockout_risk",
+        "Whole-catalogue stockout exposure from a portfolio Monte-Carlo: the "
+        "probability that ANY product stocks out over the horizon, the expected "
+        "fraction of products stocking out, portfolio fill rate and cycle service "
+        "level, and the highest-risk products. Use for 'how exposed am I to "
+        "stockouts', 'overall service level'. FORECAST with uncertainty.",
+        {"type": "object", "properties": {
+            "horizon_days": {"type": "integer", "minimum": 7, "maximum": 365},
+        }},
+        _quant_portfolio_risk, provenance="FORECAST", mutating=False,
         min_role=Role.VIEWER.value,
     ),
     ToolDef(

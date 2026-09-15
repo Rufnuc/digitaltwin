@@ -210,8 +210,45 @@ def product_simulation(db: Session, product_id: int, as_of: date | None = None,
     fill rate, cycle service level, expected lost units and the resulting
     stockout cost (expected lost units × unit margin, spec v4 §6).
     """
+    spec = _build_sim_inputs(db, product_id, as_of=as_of, service_level=service_level,
+                             review_period_days=review_period_days, include_demo=include_demo)
+    if spec["status"] != "OK":
+        return spec
+
+    result = sim.simulate_policy(
+        weekday_means=spec["weekday_means"], vmr=spec["vmr"],
+        start_weekday=spec["start_weekday"], lead_time_days=spec["lead_time_days"],
+        review_period_days=review_period_days, order_up_to=spec["order_up_to"],
+        initial_inventory=spec["initial_inventory"], horizon_days=horizon_days,
+        iterations=iterations, seed=seed, mode=mode,
+    )
+    unit_margin = spec["unit_margin"]
+    stockout_cost = (round(result["expected_lost_units"] * unit_margin, 2)
+                     if unit_margin is not None else None)
+    return {
+        "status": "OK",
+        "product_id": product_id,
+        "product_code": spec["product_code"],
+        "product_name": spec["product_name"],
+        "pattern": spec["pattern"],
+        "abc_class": spec["abc_class"],
+        "applied_service_level": spec["applied_service_level"],
+        "demand_vmr": spec["vmr"],
+        "simulation": result,
+        "stockout_cost": stockout_cost,
+        "config_version": config_version(),
+        "provenance": "FORECAST",
+    }
+
+
+def _build_sim_inputs(db: Session, product_id: int, as_of: date | None = None,
+                      service_level: float | None = None, review_period_days: int = 7,
+                      include_demo: bool = False, abc_class: str | None = None) -> dict:
+    """Gather the daily-simulation inputs for one product (policy S, weekday means,
+    VMR, lead, on-hand, margin) — shared by the single-product and portfolio sims."""
     reorder = product_reorder(db, product_id, as_of=as_of, service_level=service_level,
-                              review_period_days=review_period_days, include_demo=include_demo)
+                              review_period_days=review_period_days,
+                              include_demo=include_demo, abc_class=abc_class)
     if reorder.get("status") != "OK":
         return {"status": reorder.get("status", "INSUFFICIENT_DATA"),
                 "product_id": product_id, "product_name": reorder.get("product_name"),
@@ -225,21 +262,7 @@ def product_simulation(db: Session, product_id: int, as_of: date | None = None,
     as_of_date = date.fromisoformat(series["as_of"])
     events = br.product_daily_events(db, product_id, as_of, include_demo=include_demo)
     bridge = br.daily_bridge(e_week, events, as_of_date)
-    weekday_means = bridge["expected_daily_means"]
-    vmr = _weekly_vmr(series["units"])
-
     rec = reorder["recommendation"]
-    lead_days = rec["protection_horizon_days"] - review_period_days  # ceil(mean lead)
-    result = sim.simulate_policy(
-        weekday_means=weekday_means, vmr=vmr,
-        start_weekday=(as_of_date.weekday() + 1) % 7,
-        lead_time_days=max(0, lead_days), review_period_days=review_period_days,
-        order_up_to=rec["order_up_to_level"], initial_inventory=rec["inventory_position"],
-        horizon_days=horizon_days, iterations=iterations, seed=seed, mode=mode,
-    )
-    unit_margin = reorder.get("unit_margin")
-    stockout_cost = (round(result["expected_lost_units"] * unit_margin, 2)
-                     if unit_margin is not None else None)
     return {
         "status": "OK",
         "product_id": product_id,
@@ -248,9 +271,58 @@ def product_simulation(db: Session, product_id: int, as_of: date | None = None,
         "pattern": pattern["pattern"],
         "abc_class": reorder.get("abc_class"),
         "applied_service_level": reorder.get("applied_service_level"),
-        "demand_vmr": vmr,
-        "simulation": result,
-        "stockout_cost": stockout_cost,
+        "unit_margin": reorder.get("unit_margin"),
+        "weekday_means": bridge["expected_daily_means"],
+        "vmr": _weekly_vmr(series["units"]),
+        "start_weekday": (as_of_date.weekday() + 1) % 7,
+        "lead_time_days": max(0, rec["protection_horizon_days"] - review_period_days),
+        "order_up_to": rec["order_up_to_level"],
+        "initial_inventory": rec["inventory_position"],
+    }
+
+
+def portfolio_simulation(db: Session, as_of: date | None = None,
+                         service_level: float | None = None, horizon_days: int = 90,
+                         iterations: int = 500, seed: int = 42, mode: str = "lost_sales",
+                         include_demo: bool = False, max_products: int = 60) -> dict:
+    """Whole-catalogue daily Monte Carlo → portfolio stockout exposure (spec v5 §2.2).
+
+    Builds a simulation spec for every product with a valid reorder policy (capped
+    at max_products for latency) and runs them together under common random numbers.
+    """
+    products = db.scalars(select(Product).where(Product.is_active.is_(True))).all()
+    class_map = _abc_class_map(db, as_of, include_demo) if service_level is None else {}
+    specs: list[dict] = []
+    id_to_name: dict[int, str] = {}
+    skipped = 0
+    for p in products:
+        spec = _build_sim_inputs(db, p.id, as_of=as_of, service_level=service_level,
+                                 include_demo=include_demo, abc_class=class_map.get(p.id))
+        if spec["status"] != "OK":
+            skipped += 1
+            continue
+        spec["review_period_days"] = 7
+        specs.append(spec)
+        id_to_name[p.id] = spec["product_name"]
+        if len(specs) >= max_products:
+            break
+
+    if not specs:
+        return {"status": "INSUFFICIENT_DATA", "product_count": 0,
+                "products_skipped": skipped,
+                "warnings": ["NO_PRODUCTS_WITH_VALID_POLICY"]}
+
+    result = sim.simulate_portfolio(specs, horizon_days=horizon_days,
+                                    iterations=iterations, seed=seed, mode=mode)
+    # Attach product names to the highest-risk list.
+    for w in result["highest_risk_products"]:
+        w["product_name"] = id_to_name.get(w["product_id"])
+    return {
+        "status": "OK",
+        "as_of": (as_of or date.today()).isoformat(),
+        "products_simulated": len(specs),
+        "products_skipped": skipped,
+        "portfolio": result,
         "config_version": config_version(),
         "provenance": "FORECAST",
     }

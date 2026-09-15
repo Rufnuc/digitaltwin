@@ -100,6 +100,25 @@ def budget_plan(
                                     include_demo=include_demo)
 
 
+@router.get("/quant/portfolio/simulate")
+def portfolio_simulate(
+    db: Session = Depends(db_session),
+    _: User = Depends(require_role(Role.ANALYST)),
+    service_level: float | None = Query(None, ge=0.5, le=0.999),
+    horizon_days: int = Query(90, ge=7, le=365),
+    iterations: int = Query(500, ge=100, le=5000),
+    seed: int = Query(42, ge=0),
+    mode: str = Query("lost_sales", pattern="^(lost_sales|backorder)$"),
+    include_demo: bool = Query(False),
+) -> dict:
+    """Whole-catalogue Monte Carlo → portfolio stockout exposure and service level."""
+    _require_enabled()
+    return qsvc.portfolio_simulation(
+        db, service_level=service_level, horizon_days=horizon_days,
+        iterations=iterations, seed=seed, mode=mode, include_demo=include_demo,
+    )
+
+
 @router.get("/quant/suppliers/scores")
 def supplier_scores(
     db: Session = Depends(db_session),

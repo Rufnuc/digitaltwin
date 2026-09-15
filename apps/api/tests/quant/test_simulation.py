@@ -92,6 +92,54 @@ def _seed(db, product_id, customer_id, weekly_units, start, weeks):
     db.commit()
 
 
+def _spec(pid, **kw):
+    base = dict(product_id=pid, weekday_means=[2.0] * 7, vmr=1.0, start_weekday=0,
+                lead_time_days=2, review_period_days=7, order_up_to=40,
+                initial_inventory=30)
+    base.update(kw)
+    return base
+
+
+def test_portfolio_deterministic_and_bounded():
+    specs = [_spec(1), _spec(2, order_up_to=5, initial_inventory=2)]
+    a = sim.simulate_portfolio(specs, horizon_days=30, iterations=200, seed=5)
+    b = sim.simulate_portfolio(specs, horizon_days=30, iterations=200, seed=5)
+    assert a == b
+    assert 0.0 <= a["probability_of_any_stockout"] <= 1.0
+    assert 0.0 <= a["expected_portfolio_fill_rate"] <= 1.0
+    assert a["product_count"] == 2
+    # The starved product (id 2) should be the highest-risk one.
+    assert a["highest_risk_products"][0]["product_id"] == 2
+
+
+def test_portfolio_no_stockout_when_all_well_stocked():
+    specs = [_spec(1, initial_inventory=100000, order_up_to=0),
+             _spec(2, initial_inventory=100000, order_up_to=0)]
+    r = sim.simulate_portfolio(specs, horizon_days=20, iterations=100, seed=1)
+    assert r["probability_of_any_stockout"] == 0.0
+    assert r["expected_portfolio_fill_rate"] == 1.0
+
+
+def test_portfolio_simulation_integration(db):
+    cust = Customer(code="PS", name="PortCo")
+    db.add(cust)
+    p1 = Product(code="PP1", name="P1", purchase_cost=100.0, selling_price=200.0,
+                 lead_time_days=7)
+    p2 = Product(code="PP2", name="P2", purchase_cost=50.0, selling_price=120.0,
+                 lead_time_days=7)
+    db.add_all([p1, p2])
+    db.commit()
+    start = date.today() - timedelta(weeks=20)
+    _seed(db, p1.id, cust.id, weekly_units=14, start=start, weeks=20)
+    _seed(db, p2.id, cust.id, weekly_units=7, start=start, weeks=20)
+
+    r = qsvc.portfolio_simulation(db, iterations=200, horizon_days=45)
+    assert r["status"] == "OK" and r["products_simulated"] == 2
+    pf = r["portfolio"]
+    assert 0.0 <= pf["probability_of_any_stockout"] <= 1.0
+    assert 0.0 <= pf["expected_portfolio_fill_rate"] <= 1.0
+
+
 def test_product_simulation_integration(db):
     cust = Customer(code="SC", name="SimCo")
     prod = Product(code="SP", name="Sim Part", purchase_cost=100.0,
