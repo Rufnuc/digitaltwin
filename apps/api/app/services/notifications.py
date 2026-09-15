@@ -105,6 +105,27 @@ def generate(db: Session) -> dict:
             title=f"{low} product{'s' if low != 1 else ''} low on stock",
             body="Stock is at or below safety level — consider reordering.", link="/inventory")
 
+    # Quant reorder brain: deterministic order-up-to recommendations across the
+    # catalogue. This is the smarter signal than the static safety-stock check —
+    # it says HOW MUCH to order and the capital needed. Guarded so a quant error
+    # never blocks the rest of notification generation.
+    try:
+        from app.services.quant import enabled as quant_enabled
+        from app.services.quant import service as qsvc
+
+        if quant_enabled():
+            scan = qsvc.reorder_scan(db)
+            n_order = scan["counts"]["to_order_now"]
+            if n_order:
+                cost = scan["total_estimated_restock_cost"]
+                cost_txt = f" (about ₦{cost:,.0f} to restock)" if cost else ""
+                add(category="reorder", severity="high",
+                    title=f"{n_order} product{'s' if n_order != 1 else ''} to reorder now",
+                    body=f"Forecast-based reorder recommendations are ready{cost_txt}.",
+                    link="/suggestions")
+    except Exception:  # noqa: BLE001 — never let the quant scan break notifications
+        pass
+
     # Churn risk.
     try:
         ci = customer_intelligence(db)

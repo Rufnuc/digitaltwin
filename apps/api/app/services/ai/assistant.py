@@ -37,7 +37,9 @@ labelled demo in the sentence — read the provenance.
 "give me insights"), call `get_full_business_analysis` (one comprehensive tool) and \
 synthesise it into 4-6 concrete insights AND prioritised recommendations — do not \
 stop at a KPI list. Pull in demand forecasts (`get_demand_forecast`), reorder needs \
-(`get_reorder_recommendation`) or ABC (`get_abc_classification`) when relevant.
+(`get_reorder_recommendation`) or ABC (`get_abc_classification`) when relevant. For \
+"what should I reorder / restock" or a purchase plan, call `get_reorder_plan` (the \
+whole-catalogue reorder brain) rather than checking products one by one.
 - Be concise and specific. Prefer the exact figures from tool outputs.
 - WRITE FOR A NON-TECHNICAL SHOP OWNER. Do the technical reasoning silently and give \
 the answer in plain, simple English — short sentences, everyday words. Explain any \

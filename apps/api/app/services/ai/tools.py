@@ -500,6 +500,30 @@ def _quant_abc(db: Session) -> dict:
             "top": r.get("items", [])[:15], "new_products": r.get("new_products", [])[:10]}
 
 
+def _quant_reorder_plan(db: Session, service_level: float = 0.95) -> dict:
+    """Portfolio-wide reorder plan: which products to order now and how much."""
+    from app.services.quant import service as qsvc
+
+    scan = qsvc.reorder_scan(db, service_level=float(service_level))
+    return {
+        "counts": scan["counts"],
+        "total_estimated_restock_cost": scan["total_estimated_restock_cost"],
+        # Cap the list so the model gets the actionable head, not the whole catalogue.
+        "order_now": [
+            {"product": i["product_name"], "code": i["product_code"],
+             "quantity": i["recommended_order_quantity"],
+             "estimated_cost": i["estimated_order_cost"], "pattern": i["pattern"]}
+            for i in scan["items"] if i["recommendation_status"] == "READY"
+        ][:20],
+        "needs_review": [
+            {"product": i["product_name"], "code": i["product_code"],
+             "warnings": i["warnings"]}
+            for i in scan["items"] if i["recommendation_status"] != "READY"
+        ][:20],
+        "service_level": scan["service_level"],
+    }
+
+
 # --------------------------------------------------------------------------- #
 # Registry.
 # --------------------------------------------------------------------------- #
@@ -745,6 +769,19 @@ TOOLS: list[ToolDef] = [
         "with short-history products held out in a separate low-evidence section.",
         {"type": "object", "properties": {}},
         _quant_abc, provenance="MODEL_OUTPUT", mutating=False, min_role=Role.VIEWER.value,
+    ),
+    ToolDef(
+        "get_reorder_plan",
+        "PORTFOLIO reorder plan across the whole catalogue — use for 'what should I "
+        "reorder', 'what needs restocking', or a purchase plan. Returns how many "
+        "products to order now, the estimated capital to restock, the per-product "
+        "quantities (largest spend first), and items whose forecast is too "
+        "uncertain to auto-recommend (needs_review). Optional service_level.",
+        {"type": "object", "properties": {
+            "service_level": {"type": "number", "minimum": 0.5, "maximum": 0.999},
+        }},
+        _quant_reorder_plan, provenance="MODEL_OUTPUT", mutating=False,
+        min_role=Role.VIEWER.value,
     ),
 ]
 

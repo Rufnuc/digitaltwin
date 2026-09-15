@@ -74,6 +74,34 @@ def test_reorder_missing_inputs(db):
     assert "lead_time_days" in r["missing_fields"]
 
 
+def test_reorder_scan_portfolio(db):
+    cust = Customer(code="CS", name="ScanCo")
+    db.add(cust)
+    steady = _product(db, "STEADY", cost=500.0, lead=14)
+    _product(db, "QUIET", cost=800.0, lead=7)  # no sales -> not actionable
+    db.commit()
+    start = date.today() - timedelta(weeks=20)
+    _seed_sales(db, steady.id, cust.id, weekly_units=10, start=start, weeks=20)
+
+    scan = qsvc.reorder_scan(db)
+    assert scan["status"] == "OK"
+    assert set(scan["counts"]) == {"to_order_now", "needs_review", "insufficient_data"}
+
+    codes = {i["product_code"] for i in scan["items"]}
+    assert "STEADY" in codes            # steady demand, zero stock -> must order
+    assert "QUIET" not in codes         # no demand -> nothing to recommend
+
+    steady_item = next(i for i in scan["items"] if i["product_code"] == "STEADY")
+    assert steady_item["recommended_order_quantity"] > 0
+    assert steady_item["recommendation_status"] == "READY"
+    # Items are ranked by estimated restock capital, largest first.
+    costs = [i["estimated_order_cost"] or 0 for i in scan["items"]]
+    assert costs == sorted(costs, reverse=True)
+    # READY items feed the estimated restock cost total.
+    assert scan["total_estimated_restock_cost"] > 0
+    assert scan["counts"]["to_order_now"] >= 1
+
+
 def test_abc_report(db):
     cust = Customer(code="C3", name="Gamma")
     db.add(cust)

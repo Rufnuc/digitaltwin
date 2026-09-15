@@ -148,6 +148,62 @@ def product_reorder(db: Session, product_id: int, as_of: date | None = None,
     }
 
 
+def reorder_scan(db: Session, as_of: date | None = None,
+                 service_level: float = ro.DEFAULT_SERVICE_LEVEL,
+                 include_demo: bool = False, limit: int | None = None) -> dict:
+    """Portfolio reorder: run the reorder engine across active products and return
+    the ones that need ordering now. This is the quant "brain" the intelligence
+    surfaces (Suggestions, Benfieg) consume — every number is deterministic and
+    provenance-tagged. Items are split into READY (act now) and REVIEW_REQUIRED
+    (forecast quality gate tripped), and ranked by estimated capital to restock.
+    """
+    products = db.scalars(select(Product).where(Product.is_active.is_(True))).all()
+    items: list[dict] = []
+    skipped_missing = 0
+    for p in products:
+        r = product_reorder(db, p.id, as_of=as_of, service_level=service_level,
+                            include_demo=include_demo)
+        if r.get("status") != "OK":
+            if r.get("status") == "INSUFFICIENT_DATA":
+                skipped_missing += 1
+            continue
+        rec = r["recommendation"]
+        qty = rec.get("recommended_order_quantity") or 0
+        if qty <= 0:
+            continue
+        items.append({
+            "product_id": r["product_id"], "product_code": r["product_code"],
+            "product_name": r["product_name"], "pattern": r.get("pattern"),
+            "recommended_order_quantity": qty,
+            "order_up_to_level": rec.get("order_up_to_level"),
+            "inventory_position": rec.get("inventory_position"),
+            "safety_stock": rec.get("safety_stock"),
+            "estimated_order_cost": rec.get("estimated_order_cost"),
+            "recommendation_status": rec.get("recommendation_status"),
+            "warnings": rec.get("warnings", []),
+            "lead_time_source": r.get("lead_time", {}).get("source"),
+        })
+
+    # Rank by capital to restock (largest first); Nones last.
+    items.sort(key=lambda i: (i["estimated_order_cost"] or 0.0), reverse=True)
+    if limit:
+        items = items[:limit]
+    ready = [i for i in items if i["recommendation_status"] == "READY"]
+    review = [i for i in items if i["recommendation_status"] != "READY"]
+    total_cost = round(sum(i["estimated_order_cost"] or 0.0 for i in ready), 2)
+    return {
+        "status": "OK",
+        "as_of": (as_of or date.today()).isoformat(),
+        "counts": {"to_order_now": len(ready), "needs_review": len(review),
+                   "insufficient_data": skipped_missing},
+        "total_estimated_restock_cost": total_cost,
+        "items": items,
+        "service_level": service_level,
+        "config_version": config_version(),
+        "provenance": "MODEL_OUTPUT",
+    }
+
+
 def abc_report(db: Session, as_of: date | None = None, include_demo: bool = False) -> dict:
     as_of = as_of or date.today()
     products = db.scalars(select(Product).where(Product.is_active.is_(True))).all()

@@ -65,6 +65,36 @@ def test_execute_unknown_tool_is_safe(db):
     assert "error" in execute_tool(db, "does_not_exist", {})
 
 
+def test_reorder_plan_tool_returns_portfolio(db):
+    from datetime import date, timedelta
+
+    from app.core.enums import VerificationStatus
+    from app.models.customer import Customer
+    from app.models.invoice import Invoice, InvoiceLine
+    from app.models.product import Product
+
+    cust = Customer(code="RPC", name="PlanCo")
+    prod = Product(code="RPP", name="Plan Part", purchase_cost=500.0,
+                   selling_price=900.0, lead_time_days=14)
+    db.add_all([cust, prod])
+    db.commit()
+    start = date.today() - timedelta(weeks=20)
+    for i in range(20):
+        inv = Invoice(invoice_number=f"PL-{i}", invoice_date=start + timedelta(weeks=i),
+                      customer_id=cust.id, currency="NGN", subtotal=0, total=0,
+                      verification_status=VerificationStatus.VERIFIED.value,
+                      data_origin="REAL")
+        inv.lines.append(InvoiceLine(product_id=prod.id, quantity=10,
+                                     unit_price=900, line_total=9000))
+        db.add(inv)
+    db.commit()
+
+    r = execute_tool(db, "get_reorder_plan", {})
+    assert "counts" in r and r["counts"]["to_order_now"] >= 1
+    assert any(i["code"] == "RPP" for i in r["order_now"])
+    assert r["total_estimated_restock_cost"] > 0
+
+
 def test_assistant_writes_audit_log(db):
     seed(db)
     from app.models.system import AuditLog

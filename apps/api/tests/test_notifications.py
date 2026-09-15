@@ -78,6 +78,39 @@ def test_supersede_keeps_one_row_per_category(db):
     assert notifications.list_notifications(db)[0]["is_read"] is True
 
 
+def test_quant_reorder_notification(db):
+    """The quant reorder brain surfaces a 'reorder' suggestion when the forecast
+    is reliable enough to recommend ordering."""
+    from datetime import date, timedelta
+
+    from app.core.enums import VerificationStatus
+    from app.models.customer import Customer
+    from app.models.invoice import Invoice, InvoiceLine
+    from app.models.product import Product
+
+    cust = Customer(code="RC", name="ReorderCo")
+    prod = Product(code="RP1", name="Reorder Part", purchase_cost=500.0,
+                   selling_price=900.0, lead_time_days=14)
+    db.add_all([cust, prod])
+    db.commit()
+    start = date.today() - timedelta(weeks=20)
+    for i in range(20):  # steady real demand, zero stock on hand
+        inv = Invoice(invoice_number=f"RO-{i}", invoice_date=start + timedelta(weeks=i),
+                      customer_id=cust.id, currency="NGN", subtotal=0, total=0,
+                      verification_status=VerificationStatus.VERIFIED.value,
+                      data_origin="REAL")
+        inv.lines.append(InvoiceLine(product_id=prod.id, quantity=10,
+                                     unit_price=900, line_total=9000))
+        db.add(inv)
+    db.commit()
+
+    res = notifications.generate(db)
+    assert "reorder" in res["categories"]
+    items = notifications.list_notifications(db)
+    reorder = next(n for n in items if n["category"] == "reorder")
+    assert "reorder" in reorder["title"].lower() and reorder["link"] == "/suggestions"
+
+
 def test_generate_twice_does_not_pile_up(db):
     from sqlalchemy import func, select
 
