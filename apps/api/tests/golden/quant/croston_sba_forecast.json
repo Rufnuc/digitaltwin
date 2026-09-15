@@ -1,0 +1,56 @@
+{
+  "distribution_family": "OCCURRENCE_SIZE",
+  "distribution_parameters": {
+    "q": 0.341635,
+    "size_mean": 3.932761
+  },
+  "frequency": "WEEKLY",
+  "horizon_periods": 4,
+  "model_name": "sba",
+  "model_version": "sba-1.0.0",
+  "point_statistic": "MEAN",
+  "point_values": [
+    1.2764,
+    1.2764,
+    1.2764,
+    1.2764
+  ],
+  "product_pattern": "INTERMITTENT",
+  "quantiles": {
+    "p05": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "p25": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "p50": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "p75": [
+      4.0,
+      4.0,
+      4.0,
+      4.0
+    ],
+    "p95": [
+      7.0,
+      7.0,
+      7.0,
+      7.0
+    ]
+  },
+  "sample_count": 2000,
+  "seed": 42,
+  "warnings": [
+    "LOW_EVIDENCE"
+  ]
+}

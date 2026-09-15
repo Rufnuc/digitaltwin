@@ -1,0 +1,12 @@
+{
+  "model": "tsb",
+  "params": {
+    "alpha": 0.1,
+    "beta": 0.05,
+    "nonzero_count": 7,
+    "occurrence_probability": 0.360336,
+    "size_mean": 3.932761
+  },
+  "point_rate": 1.41711402,
+  "warnings": []
+}

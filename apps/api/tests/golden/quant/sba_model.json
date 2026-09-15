@@ -1,0 +1,13 @@
+{
+  "model": "sba",
+  "params": {
+    "alpha": 0.1,
+    "nonzero_count": 7,
+    "occurrence_probability": 0.352295,
+    "p_t": 2.838527,
+    "size_mean": 3.932761,
+    "z_t": 3.932761
+  },
+  "point_rate": 1.31621915,
+  "warnings": []
+}

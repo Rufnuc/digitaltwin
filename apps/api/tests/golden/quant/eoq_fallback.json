@@ -1,0 +1,17 @@
+{
+  "fallback": {
+    "eoq_constrained": null,
+    "eoq_raw": null,
+    "reason": "ordering_cost/unit_cost/annual_demand required and positive",
+    "status": "EOQ_UNAVAILABLE"
+  },
+  "valid": {
+    "annual_holding_cost_per_unit": 25.0,
+    "eoq_constrained": 330.0,
+    "eoq_raw": 322.4903,
+    "holding_rate": 0.25,
+    "moq": 1.0,
+    "order_multiple": 10.0,
+    "status": "OK"
+  }
+}

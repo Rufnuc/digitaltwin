@@ -1,0 +1,11 @@
+{
+  "model": "croston",
+  "params": {
+    "alpha": 0.1,
+    "nonzero_count": 7,
+    "p_t": 2.838527,
+    "z_t": 3.932761
+  },
+  "point_rate": 1.38549385,
+  "warnings": []
+}

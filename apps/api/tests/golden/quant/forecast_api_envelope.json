@@ -1,0 +1,53 @@
+{
+  "distribution_family": "POISSON",
+  "distribution_parameters": {
+    "mu": 12.6875
+  },
+  "frequency": "WEEKLY",
+  "horizon_periods": 4,
+  "model_name": "ses",
+  "model_version": "ses-1.0.0",
+  "point_statistic": "MEAN",
+  "point_values": [
+    12.6699,
+    12.6699,
+    12.6699,
+    12.6699
+  ],
+  "product_pattern": "SMOOTH",
+  "quantiles": {
+    "p05": [
+      7.0,
+      7.0,
+      7.0,
+      7.0
+    ],
+    "p25": [
+      10.0,
+      10.0,
+      10.0,
+      10.0
+    ],
+    "p50": [
+      12.0,
+      12.0,
+      12.0,
+      12.0
+    ],
+    "p75": [
+      15.0,
+      15.0,
+      15.0,
+      15.0
+    ],
+    "p95": [
+      19.0,
+      19.0,
+      19.0,
+      19.0
+    ]
+  },
+  "sample_count": 2000,
+  "seed": 42,
+  "warnings": []
+}

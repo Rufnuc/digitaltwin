@@ -1,0 +1,56 @@
+{
+  "counts": {
+    "new_products": 1,
+    "ranked": 4
+  },
+  "cutoffs": {
+    "a_cumulative": 0.8,
+    "b_cumulative": 0.95,
+    "min_covered_days": 30
+  },
+  "items": [
+    {
+      "abc_class": "A",
+      "annual_demand_value": 100000.0,
+      "covered_days": 200,
+      "cumulative_share": 0.834028,
+      "product_id": 1,
+      "value_share": 0.834028
+    },
+    {
+      "abc_class": "B",
+      "annual_demand_value": 15000.0,
+      "covered_days": 200,
+      "cumulative_share": 0.959133,
+      "product_id": 2,
+      "value_share": 0.125104
+    },
+    {
+      "abc_class": "C",
+      "annual_demand_value": 4000.0,
+      "covered_days": 200,
+      "cumulative_share": 0.992494,
+      "product_id": 3,
+      "value_share": 0.033361
+    },
+    {
+      "abc_class": "C",
+      "annual_demand_value": 900.0,
+      "covered_days": 200,
+      "cumulative_share": 1.0,
+      "product_id": 4,
+      "value_share": 0.007506
+    }
+  ],
+  "new_products": [
+    {
+      "annualisation_confidence": 0.3333,
+      "annualisation_confidence_adjusted_value": 16.6667,
+      "annualised_units_value_raw": 50.0,
+      "covered_days": 10,
+      "product_id": 5,
+      "status": "ABC_EVIDENCE_SHORT"
+    }
+  ],
+  "total_value": 119900.0
+}
