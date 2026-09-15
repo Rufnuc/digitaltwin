@@ -47,7 +47,7 @@ const NAV: NavSection[] = [
       { href: "/impact", label: "News → Impact", minRole: "ANALYST" },
       { href: "/simulations", label: "Simulations", minRole: "ANALYST" },
       { href: "/assistant", label: "Benfieg (AI)" },
-      { href: "/suggestions", label: "Suggestions" },
+      { href: "/suggestions", label: "Action List" },
     ],
   },
   {

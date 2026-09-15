@@ -287,6 +287,10 @@ export const api = {
   agentCompare: (body: unknown) =>
     request<AgentCompareResult>("/agents/compare", { method: "POST", body: JSON.stringify(body) }),
 
+  // ---- Quant: reorder plan (action list) ----
+  reorderPlan: (includeDemo = false) =>
+    request<ReorderPlan>(`/quant/reorder-plan?include_demo=${includeDemo}`),
+
   // ---- Notifications ----
   notifications: (unreadOnly = false) =>
     request<{ items: NotificationItem[]; unread_count: number }>(
@@ -477,6 +481,25 @@ export interface ImpactScanResult {
 }
 
 // ---- Notification types ----
+export interface ReorderItem {
+  product_id: number;
+  product_code: string;
+  product_name: string;
+  abc_class: string | null;
+  recommended_order_quantity: number;
+  estimated_order_cost: number | null;
+  margin_at_risk_over_horizon: number | null;
+  recommendation_status: string;
+  warnings: string[];
+}
+export interface ReorderPlan {
+  status: string;
+  as_of: string;
+  counts: { to_order_now: number; needs_review: number; insufficient_data: number };
+  total_estimated_restock_cost: number;
+  items: ReorderItem[];
+}
+
 export interface NotificationItem {
   id: number;
   title: string;

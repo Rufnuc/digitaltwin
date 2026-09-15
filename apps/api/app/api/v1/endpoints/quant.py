@@ -94,6 +94,19 @@ def simulate(
     return result
 
 
+@router.get("/quant/reorder-plan")
+def reorder_plan(
+    db: Session = Depends(db_session),
+    _: User = Depends(require_role(Role.ANALYST)),
+    service_level: float | None = Query(None, ge=0.5, le=0.999),
+    include_demo: bool = Query(False),
+) -> dict:
+    """Portfolio reorder plan: what to order now (ranked by margin at risk) and what
+    needs review. Powers the Suggestions action list."""
+    _require_enabled()
+    return qsvc.reorder_scan(db, service_level=service_level, include_demo=include_demo)
+
+
 @router.get("/quant/reorder-plan/budget")
 def budget_plan(
     db: Session = Depends(db_session),

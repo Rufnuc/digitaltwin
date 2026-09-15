@@ -25,8 +25,20 @@ export function ProvenanceBadge({ origin }: { origin: string }) {
   );
 }
 
-export function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
-  return <div className={`rounded-lg border border-line bg-paper ${className}`}>{children}</div>;
+export function Card({
+  children,
+  className = "",
+  onClick,
+}: {
+  children: React.ReactNode;
+  className?: string;
+  onClick?: () => void;
+}) {
+  return (
+    <div className={`rounded-lg border border-line bg-paper ${className}`} onClick={onClick}>
+      {children}
+    </div>
+  );
 }
 
 // A table that adapts to screen width: on tablet+ it renders a normal table; on
