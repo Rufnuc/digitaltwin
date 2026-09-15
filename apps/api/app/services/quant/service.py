@@ -16,12 +16,11 @@ from sqlalchemy.orm import Session
 from app.models.inventory import Inventory
 from app.models.product import Product
 from app.models.warehouse import StockLot
-from app.services.quant import backtest as bt
 from app.services.quant import bridge as br
+from app.services.quant import cache as qcache
 from app.services.quant import classification as cls
 from app.services.quant import config_version
 from app.services.quant import demand as dmd
-from app.services.quant import forecast as fc
 from app.services.quant import leadtime as lt
 from app.services.quant import reorder as ro
 from app.services.quant import simulation as sim
@@ -83,8 +82,9 @@ def product_forecast(db: Session, product_id: int, as_of: date | None = None,
         return {"status": "NOT_FOUND", "product_id": product_id}
     series = dmd.product_weekly_demand(db, product_id, as_of, include_demo=include_demo)
     pattern = cls.classify_pattern(series["units"])
-    forecast = fc.forecast(series["units"], pattern["pattern"], horizon=horizon, seed=seed)
-    diagnostics = bt.rolling_origin_backtest(series["units"], pattern["pattern"], seed=seed)
+    forecast = qcache.cached_forecast(series["units"], pattern["pattern"],
+                                      horizon=horizon, seed=seed)
+    diagnostics = qcache.cached_backtest(series["units"], pattern["pattern"], seed=seed)
     # Weekly→daily bridge for the next-period expected value (feeds the daily
     # inventory-policy simulation in Phase 2).
     e_week = (forecast.get("quantiles", {}).get("p50") or [0.0])[0]
@@ -124,8 +124,8 @@ def product_reorder(db: Session, product_id: int, as_of: date | None = None,
         service_level = service_level_for_class(abc_class)
     series = dmd.product_weekly_demand(db, product_id, as_of, include_demo=include_demo)
     pattern = cls.classify_pattern(series["units"])
-    forecast = fc.forecast(series["units"], pattern["pattern"], horizon=12)
-    diagnostics = bt.rolling_origin_backtest(series["units"], pattern["pattern"])
+    forecast = qcache.cached_forecast(series["units"], pattern["pattern"], horizon=12)
+    diagnostics = qcache.cached_backtest(series["units"], pattern["pattern"])
     weekly_mean, weekly_std = _weekly_stats(series["units"])
 
     missing = []
@@ -257,7 +257,7 @@ def _build_sim_inputs(db: Session, product_id: int, as_of: date | None = None,
 
     series = dmd.product_weekly_demand(db, product_id, as_of, include_demo=include_demo)
     pattern = cls.classify_pattern(series["units"])
-    forecast = fc.forecast(series["units"], pattern["pattern"], horizon=12)
+    forecast = qcache.cached_forecast(series["units"], pattern["pattern"], horizon=12)
     e_week = (forecast.get("quantiles", {}).get("p50") or [0.0])[0]
     as_of_date = date.fromisoformat(series["as_of"])
     events = br.product_daily_events(db, product_id, as_of, include_demo=include_demo)
