@@ -94,12 +94,34 @@ def test_reorder_scan_portfolio(db):
     steady_item = next(i for i in scan["items"] if i["product_code"] == "STEADY")
     assert steady_item["recommended_order_quantity"] > 0
     assert steady_item["recommendation_status"] == "READY"
-    # Items are ranked by estimated restock capital, largest first.
-    costs = [i["estimated_order_cost"] or 0 for i in scan["items"]]
-    assert costs == sorted(costs, reverse=True)
+    assert steady_item["margin_at_risk_over_horizon"] is not None
+    # Items are ranked by margin at risk (money at stake if we stock out), highest first.
+    risk = [i["margin_at_risk_over_horizon"] or 0 for i in scan["items"]]
+    assert risk == sorted(risk, reverse=True)
     # READY items feed the estimated restock cost total.
     assert scan["total_estimated_restock_cost"] > 0
     assert scan["counts"]["to_order_now"] >= 1
+
+
+def test_margin_at_risk_priority(db):
+    cust = Customer(code="CM", name="MarginCo")
+    db.add(cust)
+    # Same demand, but HIGH sells at a far wider margin -> more money at risk.
+    high = _product(db, "HIGHM", cost=100.0, price=1000.0, lead=7)
+    lowm = _product(db, "LOWM", cost=100.0, price=120.0, lead=7)
+    db.commit()
+    start = date.today() - timedelta(weeks=20)
+    _seed_sales(db, high.id, cust.id, weekly_units=8, start=start, weeks=20)
+    _seed_sales(db, lowm.id, cust.id, weekly_units=8, start=start, weeks=20)
+
+    rh = qsvc.product_reorder(db, high.id, service_level=0.95)
+    rl = qsvc.product_reorder(db, lowm.id, service_level=0.95)
+    assert rh["margin_at_risk_over_horizon"] > rl["margin_at_risk_over_horizon"]
+
+    scan = qsvc.reorder_scan(db, service_level=0.95)
+    codes = [i["product_code"] for i in scan["items"]]
+    # The wider-margin product is prioritised ahead of the thin-margin one.
+    assert codes.index("HIGHM") < codes.index("LOWM")
 
 
 def test_reorder_is_abc_aware(db):

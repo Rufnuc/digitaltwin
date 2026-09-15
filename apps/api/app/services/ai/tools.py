@@ -111,8 +111,10 @@ def _full_business_analysis(db: Session) -> dict:
                 "total_estimated_restock_cost": scan["total_estimated_restock_cost"],
                 "order_now": [
                     {"product": i["product_name"], "code": i["product_code"],
+                     "abc_class": i.get("abc_class"),
                      "quantity": i["recommended_order_quantity"],
-                     "estimated_cost": i["estimated_order_cost"]}
+                     "estimated_cost": i["estimated_order_cost"],
+                     "margin_at_risk": i.get("margin_at_risk_over_horizon")}
                     for i in scan["items"] if i["recommendation_status"] == "READY"
                 ][:8],
             }
@@ -514,6 +516,7 @@ def _quant_reorder(db: Session, product_id=None, product=None, service_level=Non
     return {
         "product": r.get("product_name"), "pattern": r.get("pattern"),
         "abc_class": r.get("abc_class"), "applied_service_level": r.get("applied_service_level"),
+        "margin_at_risk_over_horizon": r.get("margin_at_risk_over_horizon"),
         "recommended_order_quantity": rec["recommended_order_quantity"],
         "safety_stock": rec["safety_stock"], "order_up_to_level": rec["order_up_to_level"],
         "protection_horizon_days": rec["protection_horizon_days"],
@@ -546,8 +549,11 @@ def _quant_reorder_plan(db: Session, service_level: float = 0.95) -> dict:
         # Cap the list so the model gets the actionable head, not the whole catalogue.
         "order_now": [
             {"product": i["product_name"], "code": i["product_code"],
+             "abc_class": i.get("abc_class"),
              "quantity": i["recommended_order_quantity"],
-             "estimated_cost": i["estimated_order_cost"], "pattern": i["pattern"]}
+             "estimated_cost": i["estimated_order_cost"],
+             "margin_at_risk": i.get("margin_at_risk_over_horizon"),
+             "pattern": i["pattern"]}
             for i in scan["items"] if i["recommendation_status"] == "READY"
         ][:20],
         "needs_review": [

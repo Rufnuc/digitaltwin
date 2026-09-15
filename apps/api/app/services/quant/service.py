@@ -159,6 +159,17 @@ def product_reorder(db: Session, product_id: int, as_of: date | None = None,
         annual_demand_units=round(weekly_mean * 52, 4),
         ordering_cost=None, unit_cost=float(prod.purchase_cost),
     )
+    # Priority: gross margin exposed if we stock out over the protection horizon —
+    # expected demand over the horizon × unit margin (spec v4 §6 stockout_cost
+    # proxy, closed-form; the simulated version arrives with Phase 2). This lets
+    # the reorder plan rank by money at risk, not just capital to spend.
+    unit_margin = None
+    if prod.selling_price is not None and prod.purchase_cost is not None:
+        unit_margin = max(0.0, float(prod.selling_price) - float(prod.purchase_cost))
+    priority_score = (
+        round(rec["expected_demand_over_horizon"] * unit_margin, 2)
+        if unit_margin is not None else None
+    )
     return {
         "status": "OK",
         "product_id": product_id,
@@ -167,6 +178,8 @@ def product_reorder(db: Session, product_id: int, as_of: date | None = None,
         "pattern": pattern["pattern"],
         "abc_class": abc_class,
         "applied_service_level": service_level,
+        "unit_margin": unit_margin,
+        "margin_at_risk_over_horizon": priority_score,
         "recommendation": rec,
         "lead_time": lt_stats,
         "eoq": eoq,
@@ -214,13 +227,16 @@ def reorder_scan(db: Session, as_of: date | None = None,
             "inventory_position": rec.get("inventory_position"),
             "safety_stock": rec.get("safety_stock"),
             "estimated_order_cost": rec.get("estimated_order_cost"),
+            "margin_at_risk_over_horizon": r.get("margin_at_risk_over_horizon"),
             "recommendation_status": rec.get("recommendation_status"),
             "warnings": rec.get("warnings", []),
             "lead_time_source": r.get("lead_time", {}).get("source"),
         })
 
-    # Rank by capital to restock (largest first); Nones last.
-    items.sort(key=lambda i: (i["estimated_order_cost"] or 0.0), reverse=True)
+    # Rank by margin at risk if we stock out (money at stake), then by capital as a
+    # tie-break; Nones last. This is the business-priority order, not just spend.
+    items.sort(key=lambda i: (i["margin_at_risk_over_horizon"] or 0.0,
+                              i["estimated_order_cost"] or 0.0), reverse=True)
     if limit:
         items = items[:limit]
     ready = [i for i in items if i["recommendation_status"] == "READY"]
