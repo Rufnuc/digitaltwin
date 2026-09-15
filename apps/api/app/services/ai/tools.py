@@ -96,12 +96,28 @@ def _full_business_analysis(db: Session) -> dict:
     prov = _data_provenance(db)
     fin = monthly_pnl(db)
     fin["series"] = fin["series"][-6:]  # last 6 months, compact
+    abc_summary = None
+    reorder_summary = None
     try:
+        from app.services.quant import enabled as quant_enabled
         from app.services.quant import service as qsvc
-        abc = qsvc.abc_report(db)
-        abc_summary = {"counts": abc.get("counts"), "top": abc.get("items", [])[:5]}
+        if quant_enabled():
+            abc = qsvc.abc_report(db)
+            abc_summary = {"counts": abc.get("counts"), "top": abc.get("items", [])[:5]}
+            # Embed the reorder brain: what to restock now + the capital needed.
+            scan = qsvc.reorder_scan(db)
+            reorder_summary = {
+                "counts": scan["counts"],
+                "total_estimated_restock_cost": scan["total_estimated_restock_cost"],
+                "order_now": [
+                    {"product": i["product_name"], "code": i["product_code"],
+                     "quantity": i["recommended_order_quantity"],
+                     "estimated_cost": i["estimated_order_cost"]}
+                    for i in scan["items"] if i["recommendation_status"] == "READY"
+                ][:8],
+            }
     except Exception:  # noqa: BLE001 — quant is optional
-        abc_summary = None
+        pass
     return {
         "data_provenance": prov,
         "kpis": dashboard_summary(db),
@@ -110,9 +126,12 @@ def _full_business_analysis(db: Session) -> dict:
         "products": product_intelligence(db),
         "suppliers": supplier_intelligence(db),
         "abc": abc_summary,
+        "reorder_plan": reorder_summary,
         "data_quality": data_quality_report(db),
         "guidance": ("Synthesise these into 4-6 concrete insights and prioritised "
-                     "recommendations. State the data provenance honestly."),
+                     "recommendations. State the data provenance honestly. If a "
+                     "reorder_plan is present, include what to restock and the "
+                     "capital it needs as one of the recommendations."),
     }
 
 
@@ -463,12 +482,18 @@ def _quant_forecast(db: Session, product_id=None, product=None, horizon_periods:
         return {"error": "product not found; give a product id, code or name"}
     r = qsvc.product_forecast(db, pid, horizon=int(horizon_periods))
     f = r.get("forecast", {})
+    bridge = r.get("daily_bridge", {})
     return {
         "product": r.get("product_name"), "code": r.get("product_code"),
         "status": r.get("status"), "pattern": r.get("classification", {}).get("pattern"),
         "model": f.get("model_name"), "point_per_week": f.get("point_values", [None])[0],
         "quantiles_week1": {k: v[0] for k, v in f.get("quantiles", {}).items()},
         "weeks_observed": r.get("demand", {}).get("weeks_observed"),
+        # Weekly→daily split feeding day-level planning.
+        "daily_split": {
+            "method": bridge.get("method"),
+            "expected_per_day": bridge.get("expected_daily_means"),
+        },
     }
 
 
@@ -483,12 +508,19 @@ def _quant_reorder(db: Session, product_id=None, product=None, service_level: fl
         return {"product": r.get("product_name"), "status": r.get("status"),
                 "missing_fields": r.get("missing_fields")}
     rec = r["recommendation"]
+    lt = r.get("lead_time", {})
     return {
         "product": r.get("product_name"), "pattern": r.get("pattern"),
         "recommended_order_quantity": rec["recommended_order_quantity"],
         "safety_stock": rec["safety_stock"], "order_up_to_level": rec["order_up_to_level"],
         "protection_horizon_days": rec["protection_horizon_days"],
         "recommendation_status": rec["recommendation_status"], "warnings": rec["warnings"],
+        "estimated_order_cost": rec.get("estimated_order_cost"),
+        # Lead-time evidence behind the safety stock.
+        "lead_time": {
+            "mean_days": lt.get("mean_days"), "std_days": lt.get("std_days"),
+            "risk": lt.get("lead_time_risk"), "source": lt.get("source"),
+        },
     }
 
 

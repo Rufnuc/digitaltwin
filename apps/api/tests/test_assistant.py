@@ -94,6 +94,12 @@ def test_reorder_plan_tool_returns_portfolio(db):
     assert any(i["code"] == "RPP" for i in r["order_now"])
     assert r["total_estimated_restock_cost"] > 0
 
+    # The quant brain must also be embedded in the flagship one-call analysis.
+    fa = execute_tool(db, "get_full_business_analysis", {})
+    assert fa.get("reorder_plan") is not None
+    assert fa["reorder_plan"]["counts"]["to_order_now"] >= 1
+    assert any(i["code"] == "RPP" for i in fa["reorder_plan"]["order_now"])
+
 
 def test_assistant_writes_audit_log(db):
     seed(db)
