@@ -33,3 +33,10 @@ class Payment(Base, TimestampMixin, ProvenanceMixin):
     note: Mapped[str | None] = mapped_column(String(255), nullable=True)
     status: Mapped[str] = mapped_column(String(16), default="CONFIRMED", index=True)  # or VOIDED
     recorded_by_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    # Bank-transfer traceability: money came FROM the customer's account TO ours.
+    txid: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
+    from_account: Mapped[str | None] = mapped_column(String(64), nullable=True)   # origin acct
+    from_name: Mapped[str | None] = mapped_column(String(128), nullable=True)     # sender name/bank
+    to_account: Mapped[str | None] = mapped_column(String(64), nullable=True)     # our destination acct
+    to_name: Mapped[str | None] = mapped_column(String(128), nullable=True)       # our account/bank

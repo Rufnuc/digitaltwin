@@ -344,6 +344,17 @@ function InvoiceDrawer({
                         {p.recorded_at ? ` · ${new Date(p.recorded_at).toLocaleString("en-NG", { dateStyle: "medium", timeStyle: "short" })}` : ""}
                         {p.reference ? ` · ref ${p.reference}` : ""}
                       </div>
+                      {(p.txid || p.from_account || p.to_account) && (
+                        <div className="mt-0.5 text-[11px] text-muted">
+                          {p.txid ? `txid ${p.txid}` : ""}
+                          {p.from_account || p.from_name
+                            ? ` · from ${[p.from_name, p.from_account].filter(Boolean).join(" ")}`
+                            : ""}
+                          {p.to_account || p.to_name
+                            ? ` → ${[p.to_name, p.to_account].filter(Boolean).join(" ")}`
+                            : ""}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -478,8 +489,14 @@ function PaymentModal({
   const [amount, setAmount] = useState(String(balance));
   const [method, setMethod] = useState("transfer");
   const [reference, setReference] = useState("");
+  const [txid, setTxid] = useState("");
+  const [fromAccount, setFromAccount] = useState("");
+  const [fromName, setFromName] = useState("");
+  const [toAccount, setToAccount] = useState("");
+  const [toName, setToName] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const isTransfer = method !== "cash";
 
   async function submit() {
     const amt = Number(amount);
@@ -490,7 +507,11 @@ function PaymentModal({
     setBusy(true);
     setErr(null);
     try {
-      await api.recordPayment(invoiceId, { amount: amt, method, reference });
+      await api.recordPayment(invoiceId, {
+        amount: amt, method, reference,
+        txid: txid || null, from_account: fromAccount || null, from_name: fromName || null,
+        to_account: toAccount || null, to_name: toName || null,
+      });
       onDone();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Could not record payment");
@@ -530,7 +551,7 @@ function PaymentModal({
               ))}
             </select>
           </label>
-          <label className="mb-3 block text-xs">
+          <label className="mb-2 block text-xs">
             Reference (optional)
             <input
               value={reference}
@@ -539,6 +560,30 @@ function PaymentModal({
               className="mt-1 w-full rounded border border-line px-3 py-2 text-sm"
             />
           </label>
+          {isTransfer && (
+            <details className="mb-3 rounded border border-line p-2 text-xs" open>
+              <summary className="cursor-pointer text-muted">Transfer details (for traceability)</summary>
+              <div className="mt-2 space-y-2">
+                <input value={txid} onChange={(e) => setTxid(e.target.value)}
+                  placeholder="Transaction ID (txid)"
+                  className="w-full rounded border border-line px-3 py-2" />
+                <div className="grid grid-cols-2 gap-2">
+                  <input value={fromAccount} onChange={(e) => setFromAccount(e.target.value)}
+                    placeholder="From account (payer)"
+                    className="rounded border border-line px-3 py-2" />
+                  <input value={fromName} onChange={(e) => setFromName(e.target.value)}
+                    placeholder="From name / bank"
+                    className="rounded border border-line px-3 py-2" />
+                  <input value={toAccount} onChange={(e) => setToAccount(e.target.value)}
+                    placeholder="To account (yours)"
+                    className="rounded border border-line px-3 py-2" />
+                  <input value={toName} onChange={(e) => setToName(e.target.value)}
+                    placeholder="To name / bank"
+                    className="rounded border border-line px-3 py-2" />
+                </div>
+              </div>
+            </details>
+          )}
           {err && <div className="mb-2 text-xs text-red-700">{err}</div>}
           <div className="flex justify-end gap-2">
             <button onClick={onClose} className="rounded border border-line px-3 py-1.5 text-sm hover:bg-wash">

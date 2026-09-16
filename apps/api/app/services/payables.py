@@ -40,7 +40,9 @@ def balance(purchase: Purchase) -> float:
 def record_supplier_payment(db: Session, *, purchase_id: int, amount: float,
                             method: str = "transfer", paid_at: date | None = None,
                             reference: str | None = None, note: str | None = None,
-                            user_id: int | None = None) -> dict:
+                            user_id: int | None = None, txid: str | None = None,
+                            from_account: str | None = None, from_name: str | None = None,
+                            to_account: str | None = None, to_name: str | None = None) -> dict:
     pur = db.get(Purchase, purchase_id)
     if pur is None:
         return {"status": "NOT_FOUND", "error": f"purchase {purchase_id} not found"}
@@ -56,6 +58,8 @@ def record_supplier_payment(db: Session, *, purchase_id: int, amount: float,
         purchase_id=pur.id, supplier_id=pur.supplier_id, amount=amount, method=method,
         paid_at=paid_at or date.today(), reference=reference, note=note,
         status="CONFIRMED", recorded_by_user_id=user_id, data_origin="REAL",
+        txid=txid, from_account=from_account, from_name=from_name,
+        to_account=to_account, to_name=to_name,
     )
     db.add(pay)
     db.flush()
@@ -117,7 +121,9 @@ def list_supplier_payments(db: Session, purchase_id: int) -> list[dict]:
         SupplierPayment.purchase_id == purchase_id).order_by(SupplierPayment.id)).all()
     return [{"id": p.id, "amount": float(p.amount), "method": p.method,
              "reference": p.reference, "paid_at": p.paid_at.isoformat(),
-             "status": p.status} for p in rows]
+             "status": p.status, "txid": p.txid, "from_account": p.from_account,
+             "from_name": p.from_name, "to_account": p.to_account, "to_name": p.to_name}
+            for p in rows]
 
 
 def _supplier_names(db: Session, ids: set[int]) -> dict[int, str]:

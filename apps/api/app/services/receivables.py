@@ -41,7 +41,10 @@ def balance(invoice: Invoice) -> float:
 
 def record_payment(db: Session, *, invoice_id: int, amount: float, method: str = "cash",
                    paid_at: date | None = None, reference: str | None = None,
-                   note: str | None = None, user_id: int | None = None) -> dict:
+                   note: str | None = None, user_id: int | None = None,
+                   txid: str | None = None, from_account: str | None = None,
+                   from_name: str | None = None, to_account: str | None = None,
+                   to_name: str | None = None) -> dict:
     """Record a customer payment against an invoice. Rejects non-positive amounts
     and overpayment beyond the outstanding balance."""
     inv = db.get(Invoice, invoice_id)
@@ -60,6 +63,8 @@ def record_payment(db: Session, *, invoice_id: int, amount: float, method: str =
         invoice_id=inv.id, customer_id=inv.customer_id, amount=amount, method=method,
         paid_at=paid_at or date.today(), reference=reference, note=note,
         status="CONFIRMED", recorded_by_user_id=user_id, data_origin="REAL",
+        txid=txid, from_account=from_account, from_name=from_name,
+        to_account=to_account, to_name=to_name,
     )
     db.add(pay)
     db.flush()
@@ -99,6 +104,8 @@ def list_payments(db: Session, invoice_id: int) -> list[dict]:
         "status": p.status, "note": p.note,
         "recorded_by": names.get(p.recorded_by_user_id),
         "recorded_at": p.created_at.isoformat() if p.created_at else None,
+        "txid": p.txid, "from_account": p.from_account, "from_name": p.from_name,
+        "to_account": p.to_account, "to_name": p.to_name,
     } for p in rows]
 
 

@@ -21,6 +21,11 @@ class SupplierPaymentIn(BaseModel):
     paid_at: date | None = None
     reference: str | None = Field(None, max_length=128)
     note: str | None = Field(None, max_length=255)
+    txid: str | None = Field(None, max_length=128)
+    from_account: str | None = Field(None, max_length=64)
+    from_name: str | None = Field(None, max_length=128)
+    to_account: str | None = Field(None, max_length=64)
+    to_name: str | None = Field(None, max_length=128)
 
 
 @router.post("/purchases/{purchase_id}/payments")
@@ -34,7 +39,9 @@ def record_payment(
     r = payables.record_supplier_payment(
         db, purchase_id=purchase_id, amount=payload.amount, method=payload.method,
         paid_at=payload.paid_at, reference=payload.reference, note=payload.note,
-        user_id=user.id,
+        user_id=user.id, txid=payload.txid, from_account=payload.from_account,
+        from_name=payload.from_name, to_account=payload.to_account,
+        to_name=payload.to_name,
     )
     if r["status"] == "NOT_FOUND":
         raise HTTPException(status.HTTP_404_NOT_FOUND, r["error"])

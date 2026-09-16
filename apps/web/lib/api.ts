@@ -707,6 +707,11 @@ export interface InvoicePayment {
   note: string | null;
   recorded_by: string | null;
   recorded_at: string | null;
+  txid: string | null;
+  from_account: string | null;
+  from_name: string | null;
+  to_account: string | null;
+  to_name: string | null;
 }
 export interface InvoiceVersionRow {
   version_no: number;
