@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { PageHeader } from "@/components/Shell";
 import { ResourceTable, type Column, type FilterSpec, type FormField } from "@/components/DataTable";
 import { api } from "@/lib/api";
@@ -83,21 +83,23 @@ interface CustInvoice {
 }
 
 // The receivables section inside a customer's view modal: what they owe overall
-// and each invoice's balance/status.
+// and each invoice's balance/status. Click an owing invoice to record a payment
+// against it right here — no need to go back to the invoices section.
 function CustomerReceivable({ customerId }: { customerId: number }) {
   const [invoices, setInvoices] = useState<CustInvoice[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [paying, setPaying] = useState<CustInvoice | null>(null);
 
-  useEffect(() => {
-    let alive = true;
+  const load = useCallback(() => {
     api
       .list<CustInvoice>("invoices", `?customer_id=${customerId}&limit=100&sort=invoice_date&sort_dir=desc`)
-      .then((r) => alive && setInvoices(r.items))
-      .catch((e) => alive && setError(e instanceof Error ? e.message : "Could not load invoices"));
-    return () => {
-      alive = false;
-    };
+      .then((r) => setInvoices(r.items))
+      .catch((e) => setError(e instanceof Error ? e.message : "Could not load invoices"));
   }, [customerId]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
 
   if (error) return <div className="text-xs text-red-700">{error}</div>;
   if (!invoices) return <div className="text-xs text-muted">Loading invoices…</div>;
@@ -117,24 +119,141 @@ function CustomerReceivable({ customerId }: { customerId: number }) {
       {invoices.length === 0 ? (
         <div className="text-xs text-muted">No invoices yet.</div>
       ) : (
-        <div className="max-h-56 space-y-1 overflow-y-auto">
-          {invoices.map((i) => (
-            <div key={i.id} className="flex items-center gap-2 text-xs">
-              <span className="w-28 shrink-0 truncate font-mono">{i.invoice_number}</span>
-              <span className="w-20 shrink-0 text-muted">{i.invoice_date}</span>
-              <span className="flex-1 text-right">{naira(i.total)}</span>
-              <span className={`w-16 shrink-0 text-right ${STATUS_STYLE[i.payment_status] ?? ""}`}>
-                {i.payment_status === "PAID" ? "paid" : naira(i.balance)}
-              </span>
-            </div>
-          ))}
+        <>
+          <div className="max-h-56 space-y-1 overflow-y-auto">
+            {invoices.map((i) => {
+              const unpaid = i.payment_status !== "PAID";
+              return (
+                <div
+                  key={i.id}
+                  onClick={() => unpaid && setPaying(i)}
+                  className={`flex items-center gap-2 rounded px-1 py-1 text-xs ${
+                    unpaid ? "cursor-pointer hover:bg-wash" : ""
+                  }`}
+                  title={unpaid ? "Record a payment" : "Fully paid"}
+                >
+                  <span className="w-28 shrink-0 truncate font-mono">{i.invoice_number}</span>
+                  <span className="w-20 shrink-0 text-muted">{i.invoice_date}</span>
+                  <span className="flex-1 text-right">{naira(i.total)}</span>
+                  <span className={`w-16 shrink-0 text-right ${STATUS_STYLE[i.payment_status] ?? ""}`}>
+                    {i.payment_status === "PAID" ? "paid" : naira(i.balance)}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+          {owing > 0 && (
+            <div className="mt-1 text-[11px] text-muted">Tap an owing invoice to record a payment.</div>
+          )}
+        </>
+      )}
+      {paying && (
+        <InvoicePaymentModal
+          invoice={paying}
+          onClose={() => setPaying(null)}
+          onDone={() => {
+            setPaying(null);
+            load();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+const METHODS = ["cash", "transfer", "pos", "opay", "moniepoint", "cheque", "other"];
+
+function InvoicePaymentModal({
+  invoice,
+  onClose,
+  onDone,
+}: {
+  invoice: CustInvoice;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [amount, setAmount] = useState(String(invoice.balance));
+  const [method, setMethod] = useState("transfer");
+  const [reference, setReference] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function submit() {
+    const amt = Number(amount);
+    if (!amt || amt <= 0) {
+      setErr("Enter a positive amount");
+      return;
+    }
+    setBusy(true);
+    setErr(null);
+    try {
+      await api.recordPayment(invoice.id, { amount: amt, method, reference });
+      onDone();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Could not record payment");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4"
+      onMouseDown={onClose}
+    >
+      <div className="w-full max-w-sm" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="rounded-lg border border-line bg-paper p-4 shadow-xl">
+          <div className="mb-1 text-sm font-medium">Record payment</div>
+          <div className="mb-3 text-xs text-muted">
+            {invoice.invoice_number} · balance {naira(invoice.balance)}
+          </div>
+          <label className="mb-2 block text-xs">
+            Amount (₦)
+            <input
+              type="number"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              className="mt-1 w-full rounded border border-line px-3 py-2 text-sm"
+            />
+          </label>
+          <label className="mb-2 block text-xs">
+            Method
+            <select
+              value={method}
+              onChange={(e) => setMethod(e.target.value)}
+              className="mt-1 w-full rounded border border-line bg-paper px-3 py-2 text-sm"
+            >
+              {METHODS.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="mb-3 block text-xs">
+            Reference (optional)
+            <input
+              value={reference}
+              onChange={(e) => setReference(e.target.value)}
+              placeholder="bank/txn reference"
+              className="mt-1 w-full rounded border border-line px-3 py-2 text-sm"
+            />
+          </label>
+          {err && <div className="mb-2 text-xs text-red-700">{err}</div>}
+          <div className="flex justify-end gap-2">
+            <button onClick={onClose} className="rounded border border-line px-3 py-1.5 text-sm hover:bg-wash">
+              Cancel
+            </button>
+            <button
+              onClick={submit}
+              disabled={busy}
+              className="rounded bg-ink px-3 py-1.5 text-sm font-medium text-paper disabled:opacity-40"
+            >
+              {busy ? "Saving…" : "Record"}
+            </button>
+          </div>
         </div>
-      )}
-      {owing > 0 && (
-        <a href="/receivables" className="mt-2 inline-block text-xs text-ink underline decoration-dotted">
-          Record a payment →
-        </a>
-      )}
+      </div>
     </div>
   );
 }
