@@ -287,6 +287,17 @@ export const api = {
   agentCompare: (body: unknown) =>
     request<AgentCompareResult>("/agents/compare", { method: "POST", body: JSON.stringify(body) }),
 
+  // ---- Money: accounts receivable ----
+  receivablesSummary: () => request<ReceivablesSummary>("/receivables/summary"),
+  overdueReceivables: () => request<OverdueList>("/receivables/overdue"),
+  recordPayment: (invoiceId: number, body: unknown) =>
+    request<Record<string, unknown>>(`/receivables/invoices/${invoiceId}/payments`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  customerStatement: (customerId: number) =>
+    request<CustomerStatement>(`/receivables/customers/${customerId}/statement`),
+
   // ---- Audit trail / activity log ----
   activityLog: (params = "") => request<AuditPage>(`/audit${params}`),
   entityHistory: (entityType: string, entityId: number) =>
@@ -505,6 +516,50 @@ export interface ReorderPlan {
   counts: { to_order_now: number; needs_review: number; insufficient_data: number };
   total_estimated_restock_cost: number;
   items: ReorderItem[];
+}
+
+export interface ReceivableDebtor {
+  customer_id: number | null;
+  customer_name: string;
+  outstanding: number;
+}
+export interface ReceivablesSummary {
+  as_of: string;
+  total_outstanding: number;
+  overdue_total: number;
+  aging: Record<string, number>;
+  open_invoice_count: number;
+  debtors: ReceivableDebtor[];
+}
+export interface OverdueInvoice {
+  invoice_id: number;
+  invoice_number: string;
+  customer_id: number | null;
+  customer_name: string;
+  balance: number;
+  days_overdue: number;
+  due: string;
+}
+export interface OverdueList {
+  as_of: string;
+  count: number;
+  total: number;
+  invoices: OverdueInvoice[];
+}
+export interface StatementEvent {
+  date: string;
+  type: string;
+  ref: string;
+  charge: number;
+  payment: number;
+  balance: number;
+}
+export interface CustomerStatement {
+  customer_id: number;
+  customer_name: string;
+  credit_limit: number | null;
+  outstanding: number;
+  events: StatementEvent[];
 }
 
 export interface AuditEvent {
