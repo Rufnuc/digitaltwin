@@ -20,6 +20,7 @@ from app.api.v1.endpoints import (
     meta,
     notifications,
     quant,
+    receivables,
     shipping,
     simulations,
     stock,
@@ -58,6 +59,7 @@ api_router.include_router(agents.router)
 api_router.include_router(admin.router)
 api_router.include_router(shipping.router)
 api_router.include_router(notifications.router)
+api_router.include_router(receivables.router)
 api_router.include_router(stock.router)
 api_router.include_router(company.router)
 api_router.include_router(products_ep.router)

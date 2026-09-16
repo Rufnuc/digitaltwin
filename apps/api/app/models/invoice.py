@@ -28,6 +28,14 @@ class Invoice(Base, TimestampMixin, ProvenanceMixin):
     shipping_note: Mapped[str | None] = mapped_column(String(255), nullable=True)
     total: Mapped[float] = mapped_column(MONEY, default=0)
 
+    # Money received against this invoice. amount_paid is maintained by the
+    # receivables service from confirmed payments; balance = total - amount_paid.
+    amount_paid: Mapped[float] = mapped_column(MONEY, default=0)
+    # UNPAID | PARTIAL | PAID  (kept in step with amount_paid for fast filtering).
+    payment_status: Mapped[str] = mapped_column(String(16), default="UNPAID", index=True)
+    # When payment is due (for credit sales / aging). Null = due immediately.
+    due_date: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
+
     # Proof of record: who raised it, who last changed it, and the version count.
     created_by_user_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
     updated_by_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)

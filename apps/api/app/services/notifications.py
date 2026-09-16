@@ -157,6 +157,19 @@ def generate(db: Session) -> dict:
             title=f"{impact_alerts} market-impact alert{'s' if impact_alerts != 1 else ''}",
             body="Market signals could materially affect profit.", link="/impact")
 
+    # Overdue receivables — customers who owe past their due date.
+    try:
+        from app.services import receivables
+        od = receivables.overdue_invoices(db)
+        if od["count"]:
+            add(category="receivables", severity="high",
+                title=f"{od['count']} overdue invoice{'s' if od['count'] != 1 else ''}"
+                      f" — ₦{od['total']:,.0f} to collect",
+                body="Customers are past their due date. Chase payment.",
+                link="/receivables")
+    except Exception:  # noqa: BLE001
+        pass
+
     # Documents awaiting review.
     to_review = int(db.scalar(
         select(func.count()).select_from(ExtractedInvoice).where(

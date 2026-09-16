@@ -18,6 +18,7 @@ from app.models.extraction import ExtractedInvoice  # noqa: F401
 from app.models.inventory import Inventory  # noqa: F401
 from app.models.invoice import Invoice, InvoiceLine, InvoiceVersion  # noqa: F401
 from app.models.organization import Branch, Employee  # noqa: F401
+from app.models.payment import Payment  # noqa: F401
 from app.models.product import (  # noqa: F401
     Product,
     ProductImage,
@@ -46,6 +47,7 @@ __all__ = [
     "Invoice",
     "InvoiceLine",
     "InvoiceVersion",
+    "Payment",
     "Purchase",
     "PurchaseLine",
     "Inventory",

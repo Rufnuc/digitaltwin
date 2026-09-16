@@ -476,6 +476,78 @@ def _resolve_product_id(db: Session, product_id=None, product=None) -> int | Non
     return None
 
 
+def _resolve_customer_id(db: Session, customer=None, customer_id=None) -> int | None:
+    if customer_id is not None:
+        try:
+            return int(customer_id)
+        except (TypeError, ValueError):
+            return None
+    if customer:
+        row = db.scalar(select(Customer).where(
+            or_(Customer.code == str(customer), Customer.name.ilike(f"%{customer}%"))
+        ))
+        return row.id if row else None
+    return None
+
+
+# --------------------------------------------------------------------------- #
+# Money — accounts receivable (who owes what, record payments).
+# --------------------------------------------------------------------------- #
+def _receivables_summary(db: Session) -> dict:
+    from app.services import receivables
+    r = receivables.receivables_summary(db)
+    return {
+        "total_outstanding": r["total_outstanding"], "overdue_total": r["overdue_total"],
+        "aging": r["aging"], "open_invoices": r["open_invoice_count"],
+        "top_debtors": [
+            {"customer": d["customer_name"], "owes": d["outstanding"]}
+            for d in r["debtors"][:10]
+        ],
+    }
+
+
+def _overdue_receivables(db: Session) -> dict:
+    from app.services import receivables
+    r = receivables.overdue_invoices(db)
+    return {
+        "overdue_count": r["count"], "overdue_total": r["total"],
+        "invoices": [
+            {"invoice": i["invoice_number"], "customer": i["customer_name"],
+             "balance": i["balance"], "days_overdue": i["days_overdue"]}
+            for i in r["invoices"][:20]
+        ],
+    }
+
+
+def _customer_balance(db: Session, customer=None, customer_id=None) -> dict:
+    from app.services import receivables
+    cid = _resolve_customer_id(db, customer=customer, customer_id=customer_id)
+    if cid is None:
+        return {"error": "customer not found; give a customer name or code"}
+    st = receivables.customer_statement(db, cid)
+    if st.get("status") == "NOT_FOUND":
+        return {"error": "customer not found"}
+    return {
+        "customer": st["customer_name"], "outstanding": st["outstanding"],
+        "credit_limit": st["credit_limit"],
+        "recent": st["events"][-8:],
+    }
+
+
+def _record_payment(db: Session, invoice_number=None, invoice_id=None, amount: float = 0.0,
+                    method: str = "cash", reference=None) -> dict:
+    from app.services import receivables
+    inv_id = invoice_id
+    if inv_id is None and invoice_number:
+        row = db.scalar(select(Invoice).where(Invoice.invoice_number == str(invoice_number)))
+        inv_id = row.id if row else None
+    if inv_id is None:
+        return {"error": "give the invoice number (or id) to pay against"}
+    r = receivables.record_payment(db, invoice_id=int(inv_id), amount=float(amount),
+                                   method=method, reference=reference)
+    return r
+
+
 def _quant_forecast(db: Session, product_id=None, product=None, horizon_periods: int = 12) -> dict:
     from app.services.quant import service as qsvc
 
@@ -1064,6 +1136,46 @@ TOOLS: list[ToolDef] = [
             "limit": {"type": "integer", "minimum": 1, "maximum": 50},
         }},
         _activity_log, provenance="REAL", mutating=False, min_role=Role.ANALYST.value,
+    ),
+    ToolDef(
+        "get_receivables",
+        "Money owed to the business (accounts receivable): total outstanding, how "
+        "much is overdue, the aging breakdown (current / 1-30 / 31-60 / 61-90 / 90+ "
+        "days) and the top debtors. Use for 'who owes me money', 'how much is "
+        "outstanding', 'receivables'.",
+        {"type": "object", "properties": {}},
+        _receivables_summary, provenance="REAL", mutating=False, min_role=Role.STAFF.value,
+    ),
+    ToolDef(
+        "get_overdue_receivables",
+        "Overdue invoices — customers who are past their due date and still owe. Use "
+        "for 'who is overdue', 'who should I chase for payment'.",
+        {"type": "object", "properties": {}},
+        _overdue_receivables, provenance="REAL", mutating=False, min_role=Role.STAFF.value,
+    ),
+    ToolDef(
+        "get_customer_balance",
+        "How much one customer owes, their credit limit and recent invoices/payments. "
+        "Identify the customer by name or code.",
+        {"type": "object", "properties": {
+            "customer": {"type": "string", "description": "customer name or code"},
+            "customer_id": {"type": ["integer", "string"]},
+        }},
+        _customer_balance, provenance="REAL", mutating=False, min_role=Role.STAFF.value,
+    ),
+    ToolDef(
+        "record_payment",
+        "Record a payment a customer made against an invoice. Give the invoice "
+        "number, the amount, and the method (cash/transfer/pos/opay/moniepoint/etc). "
+        "Rejects overpayment beyond the outstanding balance.",
+        {"type": "object", "properties": {
+            "invoice_number": {"type": "string"},
+            "invoice_id": {"type": ["integer", "string"]},
+            "amount": {"type": "number", "minimum": 0},
+            "method": {"type": "string"},
+            "reference": {"type": "string", "description": "bank/txn reference"},
+        }, "required": ["amount"]},
+        _record_payment, provenance="REAL", mutating=True, min_role=Role.STAFF.value,
     ),
     ToolDef(
         "get_landed_cost",

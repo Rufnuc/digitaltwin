@@ -31,3 +31,7 @@ class Customer(Base, TimestampMixin, ProvenanceMixin):
     lifetime_revenue: Mapped[float | None] = mapped_column(MONEY, nullable=True)
     lifetime_gross_profit: Mapped[float | None] = mapped_column(MONEY, nullable=True)
     order_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    # Credit terms for wholesale customers who buy on account.
+    credit_limit: Mapped[float | None] = mapped_column(MONEY, nullable=True)
+    payment_terms_days: Mapped[int | None] = mapped_column(Integer, nullable=True)

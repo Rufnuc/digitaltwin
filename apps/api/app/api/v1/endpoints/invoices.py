@@ -317,11 +317,20 @@ def sell(
     subtotal = round(sum(ln.quantity * ln.unit_price for ln in payload.lines), 2)
     total = round(subtotal + payload.tax + payload.shipping - payload.discount, 2)
 
+    # Payment due date from the customer's credit terms (if any); else due at sale.
+    due_date = payload.invoice_date
+    if payload.customer_id is not None:
+        cust = db.get(Customer, payload.customer_id)
+        if cust is not None and cust.payment_terms_days:
+            from datetime import timedelta
+            due_date = payload.invoice_date + timedelta(days=int(cust.payment_terms_days))
+
     invoice = Invoice(
         invoice_number=payload.invoice_number, invoice_date=payload.invoice_date,
         customer_id=payload.customer_id, currency=payload.currency,
         subtotal=subtotal, discount=payload.discount, tax=payload.tax,
         shipping=payload.shipping, shipping_note=payload.shipping_note, total=total,
+        due_date=due_date,
         verification_status=VerificationStatus.VERIFIED.value,
         created_by_user_id=user.id, version_no=1,
     )
