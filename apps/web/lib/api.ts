@@ -299,6 +299,7 @@ export const api = {
     request<CustomerStatement>(`/receivables/customers/${customerId}/statement`),
   cashFlow: (days = 30) => request<CashFlow>(`/cashflow/summary?days=${days}`),
   payablesSummary: () => request<PayablesSummary>("/payables/summary"),
+  taxSummary: (params = "") => request<TaxSummary>(`/tax/summary${params}`),
 
   // ---- Audit trail / activity log ----
   activityLog: (params = "") => request<AuditPage>(`/audit${params}`),
@@ -562,6 +563,23 @@ export interface CustomerStatement {
   credit_limit: number | null;
   outstanding: number;
   events: StatementEvent[];
+}
+
+export interface TaxSummary {
+  period: { start: string; end: string };
+  revenue: number;
+  vat: { rate: number; output_vat: number; input_vat: number; vat_payable: number };
+  income_tax: {
+    cost_of_goods_sold: number;
+    operating_expenses: number;
+    taxable_profit: number;
+    annualised_turnover: number;
+    cit_rate: number;
+    cit_band: string;
+    income_tax: number;
+  };
+  total_estimated_tax: number;
+  disclaimer: string;
 }
 
 export interface CashFlow {

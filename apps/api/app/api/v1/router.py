@@ -26,6 +26,7 @@ from app.api.v1.endpoints import (
     shipping,
     simulations,
     stock,
+    tax,
 )
 from app.api.v1.endpoints import (
     audit as audit_ep,
@@ -64,6 +65,7 @@ api_router.include_router(notifications.router)
 api_router.include_router(receivables.router)
 api_router.include_router(payables.router)
 api_router.include_router(cashflow.router)
+api_router.include_router(tax.router)
 api_router.include_router(stock.router)
 api_router.include_router(company.router)
 api_router.include_router(products_ep.router)

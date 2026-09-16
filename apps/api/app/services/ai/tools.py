@@ -583,6 +583,21 @@ def _cash_flow(db: Session, days: int = 30) -> dict:
     return cashflow.cash_flow_summary(db, days=int(days))
 
 
+def _tax_estimate(db: Session) -> dict:
+    from app.services import tax
+    r = tax.tax_summary(db)
+    return {
+        "period": r["period"], "revenue": r["revenue"],
+        "vat_payable": r["vat"]["vat_payable"],
+        "output_vat": r["vat"]["output_vat"], "input_vat": r["vat"]["input_vat"],
+        "taxable_profit": r["income_tax"]["taxable_profit"],
+        "income_tax": r["income_tax"]["income_tax"],
+        "cit_band": r["income_tax"]["cit_band"],
+        "total_estimated_tax": r["total_estimated_tax"],
+        "disclaimer": r["disclaimer"],
+    }
+
+
 def _quant_forecast(db: Session, product_id=None, product=None, horizon_periods: int = 12) -> dict:
     from app.services.quant import service as qsvc
 
@@ -1230,6 +1245,16 @@ TOOLS: list[ToolDef] = [
             "days": {"type": "integer", "minimum": 1, "maximum": 365},
         }},
         _cash_flow, provenance="REAL", mutating=False, min_role=Role.MANAGER.value,
+    ),
+    ToolDef(
+        "get_tax_estimate",
+        "Estimated tax to pay for the trailing year: VAT payable (sales VAT minus "
+        "purchase VAT) and company income tax (on taxable profit = revenue − cost of "
+        "goods − expenses), with the total. Use for 'how much tax do I owe', 'VAT', "
+        "'company tax'. This is an ESTIMATE from recorded data using Nigerian default "
+        "rates — always say it's an estimate, not tax advice.",
+        {"type": "object", "properties": {}},
+        _tax_estimate, provenance="MODEL_OUTPUT", mutating=False, min_role=Role.MANAGER.value,
     ),
     ToolDef(
         "get_landed_cost",

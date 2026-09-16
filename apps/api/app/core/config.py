@@ -60,6 +60,16 @@ class Settings(BaseSettings):
     # China→Nigeria trade lanes; empty disables the feature.
     AISSTREAM_API_KEY: str = ""
 
+    # Tax (Nigeria defaults; an ESTIMATE, not tax advice — confirm with an accountant).
+    # VAT 7.5%. Company income tax is tiered by annual turnover: small (<₦25m) exempt,
+    # medium (₦25m–₦100m) 20%, large (>₦100m) 30%.
+    TAX_VAT_RATE: float = 0.075
+    TAX_CIT_SMALL_TURNOVER: float = 25_000_000.0
+    TAX_CIT_MEDIUM_TURNOVER: float = 100_000_000.0
+    TAX_CIT_SMALL_RATE: float = 0.0
+    TAX_CIT_MEDIUM_RATE: float = 0.20
+    TAX_CIT_LARGE_RATE: float = 0.30
+
     # Quant inventory & decision-support module (forecasting, reorder, risk). Off by
     # default; gates the /quant routes and quant assistant tools (spec v4 §15).
     QUANT_INVENTORY_ENABLED: bool = True

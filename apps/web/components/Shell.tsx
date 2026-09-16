@@ -28,6 +28,7 @@ const NAV: NavSection[] = [
       { href: "/invoices", label: "Invoices & Sales" },
       { href: "/receivables", label: "Receivables", minRole: "STAFF" },
       { href: "/cashflow", label: "Cash Flow", minRole: "MANAGER" },
+      { href: "/tax", label: "Tax", minRole: "MANAGER" },
     ],
   },
   {
