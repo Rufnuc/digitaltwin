@@ -378,6 +378,10 @@ def sell(
     _record_version(db, invoice, user.id, "sale created")
     db.commit()
     db.refresh(invoice)
+    # Keep the customer's lifetime revenue / order count up to date.
+    if invoice.customer_id is not None:
+        from app.services import customer_rollups
+        customer_rollups.recompute_one(db, invoice.customer_id)
     audit.record(
         db, action=AuditAction.CREATE, user_id=user.id, entity_type="invoice",
         entity_id=invoice.id,
