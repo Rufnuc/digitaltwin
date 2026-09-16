@@ -303,6 +303,22 @@ export const api = {
 
   // ---- Audit trail / activity log ----
   activityLog: (params = "") => request<AuditPage>(`/audit${params}`),
+  // Download the (filtered) activity log as a CSV file (admin only).
+  exportActivityLog: async (params = ""): Promise<void> => {
+    const res = await fetch(`${V1}/audit/export${params}`, {
+      headers: { Authorization: `Bearer ${getToken() ?? ""}` },
+    });
+    if (!res.ok) throw new ApiError(res.status, "Export failed");
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `activity-log-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  },
   entityHistory: (entityType: string, entityId: number) =>
     request<{ entity_type: string; entity_id: number; events: AuditEvent[] }>(
       `/audit/entity/${entityType}/${entityId}`,

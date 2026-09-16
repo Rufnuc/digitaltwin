@@ -46,14 +46,16 @@ class Role(str, Enum):
     VIEWER = "VIEWER"
 
 
-# Privilege ordering used for hierarchical checks.
+# Privilege ordering used for hierarchical checks. OWNER is the top role — the
+# business owner outranks a system admin and can do everything (incl. ADMIN tasks
+# like user management). ADMIN is the technical super-user just below.
 ROLE_ORDER: list[Role] = [
     Role.VIEWER,
     Role.STAFF,
     Role.ANALYST,
     Role.MANAGER,
-    Role.OWNER,
     Role.ADMIN,
+    Role.OWNER,
 ]
 
 

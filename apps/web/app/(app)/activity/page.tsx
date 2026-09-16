@@ -1,6 +1,9 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
-import { api, type AuditEvent } from "@/lib/api";
+import { useSearchParams } from "next/navigation";
+import { api, type AuditEvent, type UserRow } from "@/lib/api";
+import { getRole } from "@/lib/api";
+import { roleAtLeast } from "@/lib/roles";
 import { PageHeader } from "@/components/Shell";
 import { Card } from "@/components/ui";
 
@@ -26,21 +29,31 @@ function when(iso: string | null): string {
 }
 
 export default function ActivityPage() {
+  const params = useSearchParams();
   const [events, setEvents] = useState<AuditEvent[]>([]);
   const [total, setTotal] = useState(0);
   const [entityType, setEntityType] = useState("");
   const [action, setAction] = useState("");
+  const [userId, setUserId] = useState(params.get("user") ?? "");
+  const [users, setUsers] = useState<UserRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [openId, setOpenId] = useState<number | null>(null);
+  const isAdmin = roleAtLeast(getRole(), "ADMIN");
+
+  const query = useCallback(() => {
+    const q = new URLSearchParams();
+    if (entityType) q.set("entity_type", entityType);
+    if (action) q.set("action", action);
+    if (userId) q.set("user_id", userId);
+    return q;
+  }, [entityType, action, userId]);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const q = new URLSearchParams();
-      if (entityType) q.set("entity_type", entityType);
-      if (action) q.set("action", action);
+      const q = query();
       q.set("limit", "100");
       const r = await api.activityLog(`?${q.toString()}`);
       setEvents(r.items);
@@ -50,11 +63,15 @@ export default function ActivityPage() {
     } finally {
       setLoading(false);
     }
-  }, [entityType, action]);
+  }, [query]);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    if (isAdmin) api.listUsers().then(setUsers).catch(() => {});
+  }, [isAdmin]);
 
   return (
     <div>
@@ -85,6 +102,20 @@ export default function ActivityPage() {
           <option value="UPDATE">Updated</option>
           <option value="DELETE">Deleted</option>
         </select>
+        {isAdmin && (
+          <select
+            value={userId}
+            onChange={(e) => setUserId(e.target.value)}
+            className="rounded border border-line bg-paper px-3 py-2 text-sm"
+          >
+            <option value="">All users</option>
+            {users.map((u) => (
+              <option key={u.id} value={u.id}>
+                {u.full_name || u.email}
+              </option>
+            ))}
+          </select>
+        )}
         <button
           onClick={load}
           disabled={loading}
@@ -92,6 +123,14 @@ export default function ActivityPage() {
         >
           {loading ? "Loading…" : "Refresh"}
         </button>
+        {isAdmin && (
+          <button
+            onClick={() => api.exportActivityLog(`?${query().toString()}`).catch(() => setError("Export failed"))}
+            className="rounded border border-line px-4 py-2 text-sm hover:bg-wash"
+          >
+            Export CSV
+          </button>
+        )}
         <span className="ml-auto text-sm text-muted">{total.toLocaleString()} events</span>
       </div>
 

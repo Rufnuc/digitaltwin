@@ -159,6 +159,18 @@ function UsersPanel() {
     }
   }
 
+  async function resetPassword(id: number, name: string) {
+    const pw = window.prompt(`New password for ${name} (min 8 characters):`);
+    if (!pw) return;
+    if (pw.length < 8) {
+      setError("Password must be at least 8 characters");
+      return;
+    }
+    await change(id, { password: pw });
+    setError(null);
+    window.alert("Password updated.");
+  }
+
   async function create() {
     setBusy(true);
     setError(null);
@@ -178,7 +190,7 @@ function UsersPanel() {
       <div className="mb-3 text-sm font-medium">User management</div>
       {error && <div className="mb-2 text-sm text-red-700">{error}</div>}
       <ResponsiveTable
-        headers={["Name", "Email", "Role", "Active"]}
+        headers={["Name", "Email", "Role", "Active", "Actions"]}
         empty="No users."
         rows={users.map((u) => [
           u.full_name,
@@ -204,6 +216,20 @@ function UsersPanel() {
           >
             {u.is_active ? "Active" : "Inactive"}
           </button>,
+          <span className="flex gap-1">
+            <button
+              onClick={() => resetPassword(u.id, u.full_name || u.email)}
+              className="rounded border border-line px-2 py-1 text-xs hover:bg-wash"
+            >
+              Reset password
+            </button>
+            <a
+              href={`/activity?user=${u.id}`}
+              className="rounded border border-line px-2 py-1 text-xs hover:bg-wash"
+            >
+              Activity
+            </a>
+          </span>,
         ])}
       />
 
