@@ -120,10 +120,27 @@ def _full_business_analysis(db: Session) -> dict:
             }
     except Exception:  # noqa: BLE001 — quant is optional
         pass
+    money = None
+    try:
+        from app.services import cashflow, payables, receivables
+        rec = receivables.receivables_summary(db)
+        pay = payables.payables_summary(db)
+        cf = cashflow.cash_flow_summary(db, days=30)
+        money = {
+            "owed_to_us": rec["total_outstanding"],
+            "receivables_overdue": rec["overdue_total"],
+            "we_owe_suppliers": pay["total_payable"],
+            "net_position": cf["net_position"],
+            "money_in_30d": cf["money_in"], "money_out_30d": cf["money_out"],
+            "net_cash_flow_30d": cf["net_cash_flow"],
+        }
+    except Exception:  # noqa: BLE001 — money layer is optional
+        pass
     return {
         "data_provenance": prov,
         "kpis": dashboard_summary(db),
         "pnl_trend_6mo": fin,
+        "money": money,
         "customers": customer_intelligence(db, top_n=5),
         "products": product_intelligence(db),
         "suppliers": supplier_intelligence(db),
@@ -546,6 +563,24 @@ def _record_payment(db: Session, invoice_number=None, invoice_id=None, amount: f
     r = receivables.record_payment(db, invoice_id=int(inv_id), amount=float(amount),
                                    method=method, reference=reference)
     return r
+
+
+def _payables_summary(db: Session) -> dict:
+    from app.services import payables
+    r = payables.payables_summary(db)
+    return {
+        "total_payable": r["total_payable"], "overdue_total": r["overdue_total"],
+        "aging": r["aging"], "open_purchases": r["open_purchase_count"],
+        "top_creditors": [
+            {"supplier": c["supplier_name"], "we_owe": c["owed"]}
+            for c in r["creditors"][:10]
+        ],
+    }
+
+
+def _cash_flow(db: Session, days: int = 30) -> dict:
+    from app.services import cashflow
+    return cashflow.cash_flow_summary(db, days=int(days))
 
 
 def _quant_forecast(db: Session, product_id=None, product=None, horizon_periods: int = 12) -> dict:
@@ -1176,6 +1211,25 @@ TOOLS: list[ToolDef] = [
             "reference": {"type": "string", "description": "bank/txn reference"},
         }, "required": ["amount"]},
         _record_payment, provenance="REAL", mutating=True, min_role=Role.STAFF.value,
+    ),
+    ToolDef(
+        "get_payables",
+        "Money the business owes suppliers (accounts payable): total owed, how much "
+        "is overdue, the aging breakdown and the biggest creditors. Use for 'who do "
+        "I owe', 'what do I owe suppliers', 'payables'.",
+        {"type": "object", "properties": {}},
+        _payables_summary, provenance="REAL", mutating=False, min_role=Role.MANAGER.value,
+    ),
+    ToolDef(
+        "get_cash_flow",
+        "Cash flow: money in vs money out over a recent window (default 30 days), the "
+        "net, and outstanding balances — what's owed to us (receivables) vs what we "
+        "owe (payables), and the net position. Use for 'how is my cash', 'cash flow', "
+        "'am I collecting more than I'm spending'.",
+        {"type": "object", "properties": {
+            "days": {"type": "integer", "minimum": 1, "maximum": 365},
+        }},
+        _cash_flow, provenance="REAL", mutating=False, min_role=Role.MANAGER.value,
     ),
     ToolDef(
         "get_landed_cost",

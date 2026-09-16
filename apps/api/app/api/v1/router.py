@@ -10,6 +10,7 @@ from app.api.v1.endpoints import (
     analytics,
     assistant,
     auth,
+    cashflow,
     company,
     dashboard,
     documents,
@@ -19,6 +20,7 @@ from app.api.v1.endpoints import (
     market,
     meta,
     notifications,
+    payables,
     quant,
     receivables,
     shipping,
@@ -60,6 +62,8 @@ api_router.include_router(admin.router)
 api_router.include_router(shipping.router)
 api_router.include_router(notifications.router)
 api_router.include_router(receivables.router)
+api_router.include_router(payables.router)
+api_router.include_router(cashflow.router)
 api_router.include_router(stock.router)
 api_router.include_router(company.router)
 api_router.include_router(products_ep.router)
