@@ -15,12 +15,22 @@ interface Row {
   subtotal: number;
   tax: number;
   total: number;
+  amount_paid: number;
+  payment_status: string;
+  balance: number;
+  customer_name: string | null;
   verification_status: string;
   created_by: string | null;
   version_no: number;
 }
 
 const STATUSES = ["VERIFIED", "NEEDS_REVIEW", "AI_EXTRACTED", "UNVERIFIED"];
+const PAY_STATUSES = ["UNPAID", "PARTIAL", "PAID"];
+const PAY_STYLE: Record<string, string> = {
+  PAID: "text-green-700 dark:text-green-300",
+  PARTIAL: "text-yellow-700 dark:text-yellow-300",
+  UNPAID: "text-red-700 dark:text-red-300",
+};
 
 export default function InvoicesPage() {
   const [rows, setRows] = useState<Row[]>([]);
@@ -28,6 +38,7 @@ export default function InvoicesPage() {
   const [offset, setOffset] = useState(0);
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("");
+  const [payStatus, setPayStatus] = useState("");
   const [sort, setSort] = useState("id");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [selected, setSelected] = useState<number | null>(null);
@@ -41,6 +52,7 @@ export default function InvoicesPage() {
       const parts = [`limit=${limit}`, `offset=${offset}`, `sort=${sort}`, `sort_dir=${sortDir}`];
       if (q) parts.push(`q=${encodeURIComponent(q)}`);
       if (status) parts.push(`verification_status=${status}`);
+      if (payStatus) parts.push(`payment_status=${payStatus}`);
       const r = await api.list<Row>("invoices", `?${parts.join("&")}`);
       setRows(r.items);
       setTotal(r.total);
@@ -48,7 +60,7 @@ export default function InvoicesPage() {
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load");
     }
-  }, [offset, q, status, sort, sortDir]);
+  }, [offset, q, status, payStatus, sort, sortDir]);
 
   useEffect(() => {
     load();
@@ -109,11 +121,27 @@ export default function InvoicesPage() {
             </option>
           ))}
         </select>
-        {(q || status || sort !== "id") && (
+        <select
+          value={payStatus}
+          onChange={(e) => {
+            setOffset(0);
+            setPayStatus(e.target.value);
+          }}
+          className="rounded border border-line bg-paper px-2 py-1.5 text-sm"
+        >
+          <option value="">Payment: all</option>
+          {PAY_STATUSES.map((s) => (
+            <option key={s} value={s}>
+              {s === "UNPAID" ? "Owing (unpaid)" : s === "PARTIAL" ? "Part-paid" : "Paid"}
+            </option>
+          ))}
+        </select>
+        {(q || status || payStatus || sort !== "id") && (
           <button
             onClick={() => {
               setQ("");
               setStatus("");
+              setPayStatus("");
               setSort("id");
               setSortDir("desc");
               setOffset(0);
@@ -132,7 +160,6 @@ export default function InvoicesPage() {
               {[
                 ["invoice_number", "Invoice #"],
                 ["invoice_date", "Date"],
-                ["total", "Total"],
               ].map(([key, label]) => (
                 <th key={key} className="px-3 py-2 font-medium">
                   <button onClick={() => toggleSort(key)} className="inline-flex items-center gap-1 hover:text-ink">
@@ -140,6 +167,13 @@ export default function InvoicesPage() {
                   </button>
                 </th>
               ))}
+              <th className="px-3 py-2 font-medium">Customer</th>
+              <th className="px-3 py-2 font-medium">
+                <button onClick={() => toggleSort("total")} className="inline-flex items-center gap-1 hover:text-ink">
+                  Total <span className="text-[9px]">{sortMark("total")}</span>
+                </button>
+              </th>
+              <th className="px-3 py-2 font-medium">Payment</th>
               <th className="px-3 py-2 font-medium">Verification</th>
               <th className="px-3 py-2 font-medium">Raised by</th>
               <th className="px-3 py-2 font-medium">Ver.</th>
@@ -148,7 +182,7 @@ export default function InvoicesPage() {
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td className="px-3 py-6 text-muted" colSpan={6}>
+                <td className="px-3 py-6 text-muted" colSpan={8}>
                   No invoices.
                 </td>
               </tr>
@@ -161,7 +195,15 @@ export default function InvoicesPage() {
                 >
                   <td className="px-3 py-2 font-medium">{r.invoice_number}</td>
                   <td className="px-3 py-2">{r.invoice_date}</td>
+                  <td className="px-3 py-2 text-muted">{r.customer_name ?? "—"}</td>
                   <td className="px-3 py-2">{money2(r.total)}</td>
+                  <td className="px-3 py-2">
+                    <span className={PAY_STYLE[r.payment_status] ?? ""}>
+                      {r.payment_status === "PAID"
+                        ? "Paid"
+                        : `${r.payment_status === "PARTIAL" ? "Owing " : "Owing "}${money2(r.balance)}`}
+                    </span>
+                  </td>
                   <td className="px-3 py-2">
                     <span className={r.verification_status === "NEEDS_REVIEW" ? "text-yellow-700 dark:text-yellow-300" : ""}>
                       {r.verification_status}

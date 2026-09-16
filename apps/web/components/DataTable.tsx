@@ -35,6 +35,7 @@ export function ResourceTable<T extends Record<string, unknown>>({
   deleteRole = "MANAGER",
   idKey = "id",
   viewable = false,
+  renderExtra,
 }: {
   resource: string;
   columns: Column<T>[];
@@ -47,6 +48,8 @@ export function ResourceTable<T extends Record<string, unknown>>({
   deleteRole?: Role;
   idKey?: string;
   viewable?: boolean;
+  // Extra content rendered inside the view modal (e.g. a customer's receivables).
+  renderExtra?: (row: T) => React.ReactNode;
 }) {
   const [items, setItems] = useState<T[]>([]);
   const [total, setTotal] = useState(0);
@@ -350,7 +353,7 @@ export function ResourceTable<T extends Record<string, unknown>>({
           onMouseDown={() => setViewing(null)}
         >
           <div
-            className="w-full max-w-md rounded-lg border border-line bg-paper p-4 shadow-xl"
+            className={`w-full ${renderExtra ? "max-w-lg" : "max-w-md"} rounded-lg border border-line bg-paper p-4 shadow-xl`}
             onMouseDown={(e) => e.stopPropagation()}
           >
             <div className="mb-3 flex items-center justify-between">
@@ -369,6 +372,7 @@ export function ResourceTable<T extends Record<string, unknown>>({
                 </div>
               ))}
             </div>
+            {renderExtra && <div className="mt-3">{renderExtra(viewing)}</div>}
             {canWrite && (
               <div className="mt-4 flex flex-wrap gap-2">
                 <button

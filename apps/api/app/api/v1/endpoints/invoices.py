@@ -67,6 +67,7 @@ def list_invoices(
     customer_id: int | None = None,
     q: str | None = Query(None, description="search invoice number"),
     verification_status: str | None = Query(None),
+    payment_status: str | None = Query(None, description="UNPAID | PARTIAL | PAID"),
     sort: str | None = Query(None),
     sort_dir: str = Query("asc"),
 ) -> dict:
@@ -77,16 +78,26 @@ def list_invoices(
         stmt = stmt.where(Invoice.invoice_number.ilike(f"%{q}%"))
     if verification_status:
         stmt = stmt.where(Invoice.verification_status == verification_status)
+    if payment_status:
+        stmt = stmt.where(Invoice.payment_status == payment_status)
     col = getattr(Invoice, sort) if sort in _SORTABLE else Invoice.id
     stmt = stmt.order_by(col.desc() if sort_dir == "desc" else col.asc())
     total = db.scalar(select(func.count()).select_from(stmt.subquery()))
     rows = db.scalars(stmt.limit(limit).offset(offset)).all()
     names = _user_names(db)
+    cust_ids = {r.customer_id for r in rows if r.customer_id}
+    cust_names = {
+        cid: cname for cid, cname in db.execute(
+            select(Customer.id, Customer.name).where(Customer.id.in_(cust_ids))
+        ).all()
+    } if cust_ids else {}
     items = []
     for r in rows:
         d = InvoiceOut.model_validate(r).model_dump(mode="json")
         d["created_by"] = names.get(r.created_by_user_id)
         d["version_no"] = r.version_no
+        d["customer_name"] = cust_names.get(r.customer_id)
+        d["balance"] = round(float(r.total or 0) - float(r.amount_paid or 0), 2)
         items.append(d)
     return {
         "items": items,

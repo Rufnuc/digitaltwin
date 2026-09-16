@@ -301,4 +301,7 @@ class InvoiceOut(ProvenanceOut, TimestampsOut):
     shipping: float = 0
     shipping_note: str | None = None
     total: float
+    amount_paid: float = 0
+    payment_status: str = "UNPAID"
+    due_date: date | None = None
     lines: list[InvoiceLineOut] = []
