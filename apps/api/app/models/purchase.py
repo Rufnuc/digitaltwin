@@ -70,8 +70,9 @@ class SupplierPayment(Base, TimestampMixin, ProvenanceMixin):
     recorded_by_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # Bank-transfer traceability: money went FROM our account TO the supplier's.
+    # from_* = our paying account; to_* = the supplier's receiving account.
     txid: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
-    from_account: Mapped[str | None] = mapped_column(String(64), nullable=True)   # our origin acct
+    from_account: Mapped[str | None] = mapped_column(String(64), nullable=True)
     from_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    to_account: Mapped[str | None] = mapped_column(String(64), nullable=True)     # supplier destination acct
+    to_account: Mapped[str | None] = mapped_column(String(64), nullable=True)
     to_name: Mapped[str | None] = mapped_column(String(128), nullable=True)

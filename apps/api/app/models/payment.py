@@ -35,8 +35,9 @@ class Payment(Base, TimestampMixin, ProvenanceMixin):
     recorded_by_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # Bank-transfer traceability: money came FROM the customer's account TO ours.
+    # from_* = payer (customer); to_* = our receiving account.
     txid: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
-    from_account: Mapped[str | None] = mapped_column(String(64), nullable=True)   # origin acct
-    from_name: Mapped[str | None] = mapped_column(String(128), nullable=True)     # sender name/bank
-    to_account: Mapped[str | None] = mapped_column(String(64), nullable=True)     # our destination acct
-    to_name: Mapped[str | None] = mapped_column(String(128), nullable=True)       # our account/bank
+    from_account: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    from_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    to_account: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    to_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
