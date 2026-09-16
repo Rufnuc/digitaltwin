@@ -297,6 +297,8 @@ export const api = {
     }),
   customerStatement: (customerId: number) =>
     request<CustomerStatement>(`/receivables/customers/${customerId}/statement`),
+  cashFlow: (days = 30) => request<CashFlow>(`/cashflow/summary?days=${days}`),
+  payablesSummary: () => request<PayablesSummary>("/payables/summary"),
 
   // ---- Audit trail / activity log ----
   activityLog: (params = "") => request<AuditPage>(`/audit${params}`),
@@ -560,6 +562,26 @@ export interface CustomerStatement {
   credit_limit: number | null;
   outstanding: number;
   events: StatementEvent[];
+}
+
+export interface CashFlow {
+  as_of: string;
+  window_days: number;
+  money_in: number;
+  money_out: number;
+  money_out_breakdown: { supplier_payments: number; expenses: number };
+  net_cash_flow: number;
+  owed_to_us: number;
+  we_owe: number;
+  net_position: number;
+  note: string;
+}
+export interface PayablesSummary {
+  total_payable: number;
+  overdue_total: number;
+  aging: Record<string, number>;
+  open_purchase_count: number;
+  creditors: { supplier_id: number | null; supplier_name: string; owed: number }[];
 }
 
 export interface AuditEvent {
