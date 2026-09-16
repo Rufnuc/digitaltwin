@@ -92,11 +92,23 @@ def list_payments(db: Session, invoice_id: int) -> list[dict]:
     rows = db.scalars(
         select(Payment).where(Payment.invoice_id == invoice_id).order_by(Payment.id)
     ).all()
+    names = _user_names(db, {p.recorded_by_user_id for p in rows if p.recorded_by_user_id})
     return [{
         "id": p.id, "amount": float(p.amount), "method": p.method,
         "reference": p.reference, "paid_at": p.paid_at.isoformat(),
         "status": p.status, "note": p.note,
+        "recorded_by": names.get(p.recorded_by_user_id),
+        "recorded_at": p.created_at.isoformat() if p.created_at else None,
     } for p in rows]
+
+
+def _user_names(db: Session, ids: set[int]) -> dict[int, str]:
+    if not ids:
+        return {}
+    from app.models.user import User
+    return {uid: (name or email) for uid, name, email in db.execute(
+        select(User.id, User.full_name, User.email).where(User.id.in_(ids))
+    ).all()}
 
 
 def _due(inv: Invoice) -> date:

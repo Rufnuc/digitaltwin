@@ -685,6 +685,10 @@ export interface InvoiceDetail {
   updated_by: string | null;
   version_no: number;
   version_count: number;
+  amount_paid?: number;
+  payment_status?: string;
+  balance?: number;
+  payments?: InvoicePayment[];
   lines: {
     product_id: number | null;
     original_description: string | null;
@@ -692,6 +696,17 @@ export interface InvoiceDetail {
     unit_price: number;
     line_total: number;
   }[];
+}
+export interface InvoicePayment {
+  id: number;
+  amount: number;
+  method: string;
+  reference: string | null;
+  paid_at: string;
+  status: string;
+  note: string | null;
+  recorded_by: string | null;
+  recorded_at: string | null;
 }
 export interface InvoiceVersionRow {
   version_no: number;

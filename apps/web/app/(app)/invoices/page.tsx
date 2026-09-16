@@ -259,6 +259,7 @@ function InvoiceDrawer({
   const [inv, setInv] = useState<InvoiceDetail | null>(null);
   const [versions, setVersions] = useState<InvoiceVersionRow[]>([]);
   const [editing, setEditing] = useState(false);
+  const [paying, setPaying] = useState(false);
   const canEdit = roleAtLeast(getRole(), "MANAGER");
 
   const reload = useCallback(async () => {
@@ -298,10 +299,63 @@ function InvoiceDrawer({
               <F label={inv.shipping_note ? `Shipping (${inv.shipping_note})` : "Shipping"} value={money2(inv.shipping)} />
               <F label="Discount" value={money2(inv.discount)} />
               <F label="Total" value={money2(inv.total)} />
+              <F
+                label="Payment"
+                value={
+                  inv.payment_status === "PAID"
+                    ? "Paid in full"
+                    : `Owing ${money2(inv.balance ?? inv.total - (inv.amount_paid ?? 0))}`
+                }
+              />
               <F label="Verification" value={inv.verification_status} />
               <F label="Version" value={`v${inv.version_no}`} />
               <F label="Raised by" value={inv.created_by ?? "—"} />
               <F label="Last edited by" value={inv.updated_by ?? "—"} />
+            </div>
+
+            {/* Payment history — who recorded each payment and when. */}
+            <div className="mb-4 rounded border border-line p-3">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-sm font-medium">Payments</span>
+                {(inv.balance ?? 0) > 0 && (
+                  <span className="text-xs text-red-600">
+                    Owing {money2(inv.balance ?? 0)}
+                  </span>
+                )}
+              </div>
+              {(inv.payments ?? []).length === 0 ? (
+                <div className="text-xs text-muted">No payments recorded yet.</div>
+              ) : (
+                <div className="space-y-2">
+                  {(inv.payments ?? []).map((p) => (
+                    <div key={p.id} className="text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium">
+                          {money2(p.amount)}{" "}
+                          <span className="font-normal text-muted">· {p.method}</span>
+                          {p.status === "VOIDED" && (
+                            <span className="ml-1 text-red-600">(voided)</span>
+                          )}
+                        </span>
+                        <span className="text-muted">{p.paid_at}</span>
+                      </div>
+                      <div className="text-muted">
+                        Recorded by {p.recorded_by ?? "—"}
+                        {p.recorded_at ? ` · ${new Date(p.recorded_at).toLocaleString("en-NG", { dateStyle: "medium", timeStyle: "short" })}` : ""}
+                        {p.reference ? ` · ref ${p.reference}` : ""}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {(inv.balance ?? 0) > 0 && (
+                <button
+                  onClick={() => setPaying(true)}
+                  className="mt-2 rounded border border-line px-3 py-1.5 text-xs hover:bg-wash"
+                >
+                  Record payment
+                </button>
+              )}
             </div>
 
             <div className="mb-4 flex flex-wrap gap-2">
@@ -386,8 +440,119 @@ function InvoiceDrawer({
                 onClose={() => setViewVersion(null)}
               />
             )}
+            {paying && (
+              <PaymentModal
+                invoiceId={inv.id}
+                invoiceNumber={inv.invoice_number}
+                balance={inv.balance ?? inv.total - (inv.amount_paid ?? 0)}
+                onClose={() => setPaying(false)}
+                onDone={async () => {
+                  setPaying(false);
+                  await reload();
+                  onChanged();
+                }}
+              />
+            )}
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+const PAY_METHODS = ["cash", "transfer", "pos", "opay", "moniepoint", "cheque", "other"];
+
+function PaymentModal({
+  invoiceId,
+  invoiceNumber,
+  balance,
+  onClose,
+  onDone,
+}: {
+  invoiceId: number;
+  invoiceNumber: string;
+  balance: number;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [amount, setAmount] = useState(String(balance));
+  const [method, setMethod] = useState("transfer");
+  const [reference, setReference] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function submit() {
+    const amt = Number(amount);
+    if (!amt || amt <= 0) {
+      setErr("Enter a positive amount");
+      return;
+    }
+    setBusy(true);
+    setErr(null);
+    try {
+      await api.recordPayment(invoiceId, { amount: amt, method, reference });
+      onDone();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Could not record payment");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4" onMouseDown={onClose}>
+      <div className="w-full max-w-sm" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="rounded-lg border border-line bg-paper p-4 shadow-xl">
+          <div className="mb-1 text-sm font-medium">Record payment</div>
+          <div className="mb-3 text-xs text-muted">
+            {invoiceNumber} · balance {money2(balance)}
+          </div>
+          <label className="mb-2 block text-xs">
+            Amount (₦)
+            <input
+              type="number"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              className="mt-1 w-full rounded border border-line px-3 py-2 text-sm"
+            />
+          </label>
+          <label className="mb-2 block text-xs">
+            Method
+            <select
+              value={method}
+              onChange={(e) => setMethod(e.target.value)}
+              className="mt-1 w-full rounded border border-line bg-paper px-3 py-2 text-sm"
+            >
+              {PAY_METHODS.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="mb-3 block text-xs">
+            Reference (optional)
+            <input
+              value={reference}
+              onChange={(e) => setReference(e.target.value)}
+              placeholder="bank/txn reference"
+              className="mt-1 w-full rounded border border-line px-3 py-2 text-sm"
+            />
+          </label>
+          {err && <div className="mb-2 text-xs text-red-700">{err}</div>}
+          <div className="flex justify-end gap-2">
+            <button onClick={onClose} className="rounded border border-line px-3 py-1.5 text-sm hover:bg-wash">
+              Cancel
+            </button>
+            <button
+              onClick={submit}
+              disabled={busy}
+              className="rounded bg-ink px-3 py-1.5 text-sm font-medium text-paper disabled:opacity-40"
+            >
+              {busy ? "Saving…" : "Record"}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );

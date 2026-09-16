@@ -118,6 +118,7 @@ def get_invoice(
     names = _user_names(db)
     cust = db.get(Customer, obj.customer_id) if obj.customer_id else None
     d = InvoiceOut.model_validate(obj).model_dump(mode="json")
+    from app.services import receivables
     d.update({
         "customer_name": cust.name if cust else None,
         "created_by": names.get(obj.created_by_user_id),
@@ -127,6 +128,9 @@ def get_invoice(
             select(func.count()).select_from(InvoiceVersion)
             .where(InvoiceVersion.invoice_id == invoice_id)
         ) or 0,
+        # Payment history with who recorded each (accounts-receivable traceability).
+        "balance": round(float(obj.total or 0) - float(obj.amount_paid or 0), 2),
+        "payments": receivables.list_payments(db, invoice_id),
     })
     return d
 
