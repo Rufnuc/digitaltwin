@@ -107,6 +107,11 @@ def ask(db: Session, question: str, user=None) -> dict:
     current user's permissions (role-gated) and are audit-logged."""
     provider = get_provider()
 
+    # Attribute any changes Benfieg makes to the acting user, tagged source ai.
+    from app.services.audit_listener import ACTOR_KEY, SOURCE_KEY
+    db.info[ACTOR_KEY] = user.id if user else None
+    db.info[SOURCE_KEY] = "ai_assistant"
+
     def _execute(name: str, args: dict) -> dict:
         return execute_tool(db, name, args, user)
 

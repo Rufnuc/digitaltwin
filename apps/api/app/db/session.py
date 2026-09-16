@@ -26,6 +26,13 @@ engine = create_engine(
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
 
+# Attach the automatic audit trail to every Session (app, scripts, tests). Imported
+# here (not at app startup) so direct SessionLocal use is audited too. Done after
+# SessionLocal so a circular import can't skip it.
+from app.services.audit_listener import register_audit_listeners  # noqa: E402
+
+register_audit_listeners()
+
 
 def get_db() -> Generator[Session, None, None]:
     db = SessionLocal()

@@ -562,6 +562,31 @@ def _quant_portfolio_risk(db: Session, horizon_days: int = 90) -> dict:
     }
 
 
+def _activity_log(db: Session, entity_type=None, product=None, action=None,
+                  limit: int = 20) -> dict:
+    """Recent activity from the automatic audit trail (who changed what, when)."""
+    from app.services import audit
+
+    entity_id = None
+    if product is not None:
+        pid = _resolve_product_id(db, product=product)
+        if pid is not None:
+            entity_type, entity_id = "products", pid
+    r = audit.list_audit(db, entity_type=entity_type, entity_id=entity_id,
+                         action=action, limit=min(int(limit), 50))
+    return {
+        "total_matching": r["total"],
+        "events": [
+            {"when": e["at"], "who": e["user_name"] or "system", "what": e["summary"],
+             "action": e["action"], "source": e["source"],
+             "entity": (f"{e['entity_type']} #{e['entity_id']}"
+                        if e["entity_id"] else e["entity_type"])}
+            for e in r["items"]
+        ],
+        "note": "From the automatic audit trail — every create/update/delete is recorded.",
+    }
+
+
 def _quant_landed_cost(db: Session, product_id=None, product=None) -> dict:
     """Estimated landed cost (base + import uplifts) for a product."""
     from app.services.quant import supplier as sup
@@ -1025,6 +1050,20 @@ TOOLS: list[ToolDef] = [
             "preference_rank": {"type": "integer", "minimum": 1},
         }, "required": ["product", "substitute"]},
         _add_substitute, provenance="REAL", mutating=True, min_role=Role.STAFF.value,
+    ),
+    ToolDef(
+        "get_activity_log",
+        "Recent activity from the automatic audit trail — who changed what and when. "
+        "Use for 'what happened today', 'who changed X', 'recent changes'. Optionally "
+        "filter by entity_type (e.g. 'products','invoices','customers'), a product "
+        "(code or name), or action ('CREATE','UPDATE','DELETE').",
+        {"type": "object", "properties": {
+            "entity_type": {"type": "string"},
+            "product": {"type": "string", "description": "a product code or name"},
+            "action": {"type": "string", "enum": ["CREATE", "UPDATE", "DELETE"]},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 50},
+        }},
+        _activity_log, provenance="REAL", mutating=False, min_role=Role.ANALYST.value,
     ),
     ToolDef(
         "get_landed_cost",

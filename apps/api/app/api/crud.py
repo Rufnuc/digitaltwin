@@ -19,9 +19,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.deps import db_session, get_current_user, require_role
-from app.core.enums import AuditAction, Role
+from app.core.enums import Role
 from app.models.user import User
-from app.services import audit
 
 # Query params handled explicitly by list endpoints (never treated as filters).
 _RESERVED = {"limit", "offset", "q", "sort", "sort_dir"}
@@ -144,14 +143,7 @@ def build_crud_router(
                 status.HTTP_409_CONFLICT, f"{entity_type} conflicts with an existing record"
             ) from None
         db.refresh(obj)
-        audit.record(
-            db,
-            action=AuditAction.CREATE,
-            user_id=user.id,
-            entity_type=entity_type,
-            entity_id=obj.id,
-            new_value=payload.model_dump(mode="json"),
-        )
+        # The change is recorded automatically by the audit-trail listener.
         return obj
 
     @router.patch("/{item_id}", response_model=out_schema)
@@ -165,20 +157,10 @@ def build_crud_router(
         if obj is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, f"{entity_type} {item_id} not found")
         changes = payload.model_dump(exclude_unset=True)
-        old = {k: getattr(obj, k) for k in changes}
         for k, v in changes.items():
             setattr(obj, k, v)
-        db.commit()
+        db.commit()  # before→after captured automatically by the audit-trail listener
         db.refresh(obj)
-        audit.record(
-            db,
-            action=AuditAction.UPDATE,
-            user_id=user.id,
-            entity_type=entity_type,
-            entity_id=obj.id,
-            old_value={k: str(v) for k, v in old.items()},
-            new_value={k: str(v) for k, v in changes.items()},
-        )
         return obj
 
     @router.delete(
@@ -193,14 +175,7 @@ def build_crud_router(
         if obj is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, f"{entity_type} {item_id} not found")
         db.delete(obj)
-        db.commit()
-        audit.record(
-            db,
-            action=AuditAction.DELETE,
-            user_id=user.id,
-            entity_type=entity_type,
-            entity_id=item_id,
-        )
+        db.commit()  # deletion recorded automatically by the audit-trail listener
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     return router

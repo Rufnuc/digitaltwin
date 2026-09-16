@@ -25,6 +25,9 @@ from app.api.v1.endpoints import (
     stock,
 )
 from app.api.v1.endpoints import (
+    audit as audit_ep,
+)
+from app.api.v1.endpoints import (
     products as products_ep,
 )
 from app.core.enums import Role
@@ -41,6 +44,7 @@ api_router = APIRouter()
 
 # Bespoke resources
 api_router.include_router(auth.router)
+api_router.include_router(audit_ep.router)
 api_router.include_router(dashboard.router)
 api_router.include_router(invoices.router, prefix="/invoices")
 api_router.include_router(simulations.router)

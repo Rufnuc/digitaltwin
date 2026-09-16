@@ -287,6 +287,13 @@ export const api = {
   agentCompare: (body: unknown) =>
     request<AgentCompareResult>("/agents/compare", { method: "POST", body: JSON.stringify(body) }),
 
+  // ---- Audit trail / activity log ----
+  activityLog: (params = "") => request<AuditPage>(`/audit${params}`),
+  entityHistory: (entityType: string, entityId: number) =>
+    request<{ entity_type: string; entity_id: number; events: AuditEvent[] }>(
+      `/audit/entity/${entityType}/${entityId}`,
+    ),
+
   // ---- Quant: reorder plan (action list) ----
   reorderPlan: (includeDemo = false) =>
     request<ReorderPlan>(`/quant/reorder-plan?include_demo=${includeDemo}`),
@@ -498,6 +505,26 @@ export interface ReorderPlan {
   counts: { to_order_now: number; needs_review: number; insufficient_data: number };
   total_estimated_restock_cost: number;
   items: ReorderItem[];
+}
+
+export interface AuditEvent {
+  id: number;
+  action: string;
+  entity_type: string | null;
+  entity_id: number | null;
+  user_id: number | null;
+  user_name: string | null;
+  source: string;
+  summary: string | null;
+  old_value: Record<string, unknown> | null;
+  new_value: Record<string, unknown> | null;
+  at: string | null;
+}
+export interface AuditPage {
+  items: AuditEvent[];
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 export interface NotificationItem {

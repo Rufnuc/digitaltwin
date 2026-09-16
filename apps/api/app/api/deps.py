@@ -31,6 +31,10 @@ def get_current_user(
     user = db.get(User, int(payload["sub"]))
     if user is None or not user.is_active:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "User not found or inactive")
+    # Tag the session so the automatic audit trail attributes changes to this user.
+    # Stored on the session (not a contextvar) so it survives FastAPI's threading.
+    from app.services.audit_listener import ACTOR_KEY
+    db.info[ACTOR_KEY] = user.id
     return user
 
 
