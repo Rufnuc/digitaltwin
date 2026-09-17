@@ -1,566 +1,318 @@
 "use client";
-import { useEffect, useState } from "react";
-import { api, type Comparison, type Simulation, type Tornado } from "@/lib/api";
+import { useCallback, useEffect, useState } from "react";
+import { api, type PlainSim, type SimOutcome, type Simulation } from "@/lib/api";
 import { PageHeader } from "@/components/Shell";
-import { Card, ProvenanceBadge, ResponsiveTable } from "@/components/ui";
-import { money, pct } from "@/lib/format";
+import { Card } from "@/components/ui";
 
-type Tab = "scenario" | "montecarlo" | "sensitivity" | "compare";
-const TABS: { id: Tab; label: string }[] = [
-  { id: "scenario", label: "Scenario" },
-  { id: "montecarlo", label: "Monte Carlo" },
-  { id: "sensitivity", label: "Sensitivity" },
-  { id: "compare", label: "Compare" },
-];
+// A plain-language "what if" tool. Three ways in: run every idea automatically,
+// try your own numbers, or reopen a past run. No jargon, no configuration.
 
-const SCENARIO_TYPES = [
-  { id: "price_change", label: "Price change", param: "price_change_percent" },
-  { id: "demand_change", label: "Demand change", param: "demand_change_percent" },
-  { id: "supplier_cost_change", label: "Supplier cost change", param: "unit_cost_change_percent" },
-];
+const naira = (n: number | null | undefined) =>
+  n == null ? "—" : "₦" + Math.round(n).toLocaleString("en-NG");
 
-function fmt(metric: string, v: number | undefined) {
-  if (v == null) return "—";
-  if (metric === "gross_margin") return pct(v);
-  if (metric === "units") return v.toLocaleString(undefined, { maximumFractionDigits: 0 });
-  return money(v);
-}
+const VERDICT_STYLE: Record<string, string> = {
+  better: "text-green-700 dark:text-green-300",
+  worse: "text-red-700 dark:text-red-300",
+  "about the same": "text-muted",
+};
+
+type Tab = "auto" | "manual" | "history";
 
 export default function SimulationsPage() {
-  const [tab, setTab] = useState<Tab>("scenario");
+  const [tab, setTab] = useState<Tab>("auto");
+
   return (
     <div>
       <PageHeader
-        title="Simulations"
-        subtitle="Structured scenario → deterministic engine → explained results. Numbers come from the engine, never from an LLM."
+        title="What-if simulator"
+        subtitle="See how a change — prices, sales, or supplier cost — would affect your profit, in plain terms."
       />
-      <div className="mb-4 flex gap-1 border-b border-line">
-        {TABS.map((t) => (
+      <div className="mb-4 flex gap-2">
+        {([
+          ["auto", "Run automatically"],
+          ["manual", "Try your own"],
+          ["history", "History"],
+        ] as [Tab, string][]).map(([t, label]) => (
           <button
-            key={t.id}
-            onClick={() => setTab(t.id)}
-            className={`-mb-px border-b-2 px-3 py-2 text-sm ${
-              tab === t.id ? "border-ink font-medium" : "border-transparent text-muted"
+            key={t}
+            onClick={() => setTab(t)}
+            className={`rounded border px-3 py-1.5 text-sm ${
+              tab === t ? "border-ink bg-ink text-paper" : "border-line hover:bg-wash"
             }`}
           >
-            {t.label}
+            {label}
           </button>
         ))}
       </div>
-      {tab === "scenario" && <ScenarioTab />}
-      {tab === "montecarlo" && <MonteCarloTab />}
-      {tab === "sensitivity" && <SensitivityTab />}
-      {tab === "compare" && <CompareTab />}
+
+      {tab === "auto" && <AutoTab />}
+      {tab === "manual" && <ManualTab />}
+      {tab === "history" && <HistoryTab />}
     </div>
   );
 }
 
-/* ---------------- Deterministic scenario ---------------- */
-function ScenarioTab() {
-  const [type, setType] = useState(SCENARIO_TYPES[0]);
-  const [name, setName] = useState("Raise prices 10%");
-  const [change, setChange] = useState(10);
-  const [elasticity, setElasticity] = useState(-0.8);
-  const [horizon, setHorizon] = useState(12);
-  const [current, setCurrent] = useState<Simulation | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  async function run() {
-    setBusy(true);
-    setError(null);
-    try {
-      const created = await api.createSimulation({
-        name,
-        scenario_type: type.id,
-        parameters: { [type.param]: change },
-        assumptions: { price_elasticity: elasticity },
-        horizon_months: horizon,
-      });
-      setCurrent(await api.runSimulation(created.id));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed");
-    } finally {
-      setBusy(false);
-    }
-  }
-
+function OutcomeRow({ o, baselineProfit }: { o: SimOutcome; baselineProfit: number }) {
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-      <Card className="p-4">
-        <div className="mb-3 text-sm font-medium">Scenario builder</div>
-        <Field label="Name">
-          <input value={name} onChange={(e) => setName(e.target.value)} className={inp} />
-        </Field>
-        <Field label="Scenario type">
-          <select
-            value={type.id}
-            onChange={(e) => setType(SCENARIO_TYPES.find((s) => s.id === e.target.value)!)}
-            className={inp}
-          >
-            {SCENARIO_TYPES.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.label}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field label="Change (%)">
-          <input
-            type="number"
-            value={change}
-            onChange={(e) => setChange(Number(e.target.value))}
-            className={inp}
-          />
-        </Field>
-        <Field label="Price elasticity (ASSUMPTION)">
-          <input
-            type="number"
-            step="0.1"
-            value={elasticity}
-            onChange={(e) => setElasticity(Number(e.target.value))}
-            className={inp}
-          />
-        </Field>
-        <Field label="Horizon (months)">
-          <input
-            type="number"
-            value={horizon}
-            onChange={(e) => setHorizon(Number(e.target.value))}
-            className={inp}
-          />
-        </Field>
-        <button onClick={run} disabled={busy} className={btn}>
-          {busy ? "Running…" : "Run simulation"}
-        </button>
-        {error && <div className="mt-2 text-sm text-red-700">{error}</div>}
-      </Card>
-
-      <Card className="p-4 lg:col-span-2">
-        <div className="mb-3 flex items-center justify-between">
-          <div className="text-sm font-medium">Results</div>
-          {current && (
-            <span className="font-mono text-[11px] text-muted">
-              {current.model_name} v{current.model_version} · {current.status}
-            </span>
-          )}
+    <div className="flex items-center gap-3 rounded border border-line p-2.5 text-sm">
+      <div className="min-w-0 flex-1">
+        <div className="font-medium">{o.name}</div>
+        <div className="text-xs text-muted">Profit {naira(o.net_profit)}</div>
+      </div>
+      <div className="shrink-0 text-right">
+        <div className={`font-semibold ${VERDICT_STYLE[o.verdict] ?? ""}`}>
+          {o.net_profit_delta >= 0 ? "+" : ""}
+          {naira(o.net_profit_delta)}
         </div>
-        {!current ? (
-          <Muted>Run a scenario to see results.</Muted>
-        ) : (
-          <>
-            <ResultsTable results={current.results} />
-            <div className="mt-3 flex items-center gap-2">
-              <ProvenanceBadge origin="MODEL_OUTPUT" />
-              <span className="text-[11px] text-muted">input: {current.input_data_version}</span>
-            </div>
-            <AssumptionsBlock a={current.assumptions} />
-          </>
-        )}
-      </Card>
-    </div>
-  );
-}
-
-function ResultsTable({ results }: { results: Simulation["results"] }) {
-  return (
-    <ResponsiveTable
-      headers={["Metric", "Baseline", "Scenario", "Change"]}
-      rows={results.map((r) => [
-        <span className="font-medium">{r.metric}</span>,
-        fmt(r.metric, r.baseline?.value),
-        fmt(r.metric, r.scenario?.value),
-        <span className={(r.delta?.percent ?? 0) >= 0 ? "text-green-700" : "text-red-700"}>
-          {r.delta ? `${r.delta.percent > 0 ? "+" : ""}${r.delta.percent}%` : "—"}
-        </span>,
-      ])}
-    />
-  );
-}
-
-/* ---------------- Monte Carlo ---------------- */
-interface MCSummary {
-  iterations: number;
-  probability_of_loss: number;
-  probability_of_target: number | null;
-  sensitivity: { variable: string; correlation: number }[];
-}
-function MonteCarloTab() {
-  const [priceMean, setPriceMean] = useState(5);
-  const [priceStd, setPriceStd] = useState(4);
-  const [costMean, setCostMean] = useState(4);
-  const [costStd, setCostStd] = useState(3);
-  const [iterations, setIterations] = useState(10000);
-  const [result, setResult] = useState<Simulation | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function run() {
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await api.monteCarlo({
-        name: "Monte Carlo run",
-        parameters: {
-          distributions: {
-            price_pct: { type: "normal", mean: priceMean, std: priceStd },
-            unit_cost_pct: { type: "normal", mean: costMean, std: costStd },
-          },
-        },
-        iterations,
-        target_metric: "net_profit",
-        target_threshold: 0,
-      });
-      setResult(res);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  const mc = result?.assumptions?.monte_carlo as MCSummary | undefined;
-
-  return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-      <Card className="p-4">
-        <div className="mb-3 text-sm font-medium">Uncertainty inputs</div>
-        <p className="mb-3 text-[11px] text-muted">
-          Each variable is sampled from a normal distribution (% change). Outputs are a
-          distribution, never a single certain number.
-        </p>
-        <TwoCol label="Price % (mean / std)">
-          <input type="number" value={priceMean} onChange={(e) => setPriceMean(+e.target.value)} className={inp} />
-          <input type="number" value={priceStd} onChange={(e) => setPriceStd(+e.target.value)} className={inp} />
-        </TwoCol>
-        <TwoCol label="Unit cost % (mean / std)">
-          <input type="number" value={costMean} onChange={(e) => setCostMean(+e.target.value)} className={inp} />
-          <input type="number" value={costStd} onChange={(e) => setCostStd(+e.target.value)} className={inp} />
-        </TwoCol>
-        <Field label="Iterations">
-          <input type="number" value={iterations} onChange={(e) => setIterations(+e.target.value)} className={inp} />
-        </Field>
-        <button onClick={run} disabled={busy} className={btn}>
-          {busy ? "Simulating…" : "Run Monte Carlo"}
-        </button>
-        {error && <div className="mt-2 text-sm text-red-700">{error}</div>}
-      </Card>
-
-      <Card className="p-4 lg:col-span-2">
-        <div className="mb-3 flex items-center justify-between">
-          <div className="text-sm font-medium">Outcome distribution</div>
-          {result && <ProvenanceBadge origin="FORECAST" />}
+        <div className={`text-xs ${VERDICT_STYLE[o.verdict] ?? "text-muted"}`}>
+          {o.net_profit_pct >= 0 ? "+" : ""}
+          {o.net_profit_pct}% · {o.verdict}
         </div>
-        {!result || !mc ? (
-          <Muted>Run a Monte Carlo simulation to see the distribution.</Muted>
-        ) : (
-          <>
-            <div className="mb-3 grid grid-cols-3 gap-3">
-              <Stat label="Iterations" value={mc.iterations.toLocaleString()} />
-              <Stat label="P(loss)" value={pct(mc.probability_of_loss)} danger={mc.probability_of_loss > 0.1} />
-              <Stat label="P(net ≥ 0)" value={mc.probability_of_target == null ? "—" : pct(mc.probability_of_target)} />
-            </div>
-            <ResponsiveTable
-              headers={["Metric", "P5", "P25", "Median", "P75", "P95", "Mean"]}
-              rows={result.results.map((r) => {
-                const s = r.scenario as Record<string, number>;
-                return [
-                  <span className="font-medium">{r.metric}</span>,
-                  fmt(r.metric, s.p5),
-                  fmt(r.metric, s.p25),
-                  fmt(r.metric, s.p50),
-                  fmt(r.metric, s.p75),
-                  fmt(r.metric, s.p95),
-                  fmt(r.metric, s.mean),
-                ];
-              })}
-            />
-            <div className="mt-4">
-              <div className="mb-2 text-xs font-medium text-muted">
-                Sensitivity — correlation of each input with net profit
-              </div>
-              <Bars
-                rows={mc.sensitivity.map((s) => ({
-                  label: s.variable,
-                  value: Math.abs(s.correlation),
-                  raw: s.correlation,
-                }))}
-              />
-            </div>
-          </>
-        )}
-      </Card>
+      </div>
     </div>
   );
 }
 
-/* ---------------- Sensitivity (tornado) ---------------- */
-function SensitivityTab() {
-  const [elasticity, setElasticity] = useState(-0.8);
-  const [result, setResult] = useState<Tornado | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function run() {
-    setBusy(true);
-    setError(null);
-    try {
-      setResult(
-        await api.sensitivity({
-          parameters: {},
-          assumptions: { price_elasticity: elasticity },
-          target_metric: "net_profit",
-        }),
-      );
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  const max = result ? Math.max(...result.ranking.map((r) => r.swing), 1) : 1;
-
+function AutoResult({ sim }: { sim: PlainSim }) {
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-      <Card className="p-4">
-        <div className="mb-3 text-sm font-medium">Tornado analysis</div>
-        <p className="mb-3 text-[11px] text-muted">
-          Each lever is varied between default low/high bounds, one at a time. Ranked by the
-          swing it causes in net profit — “what matters most?”
-        </p>
-        <Field label="Price elasticity (ASSUMPTION)">
-          <input type="number" step="0.1" value={elasticity} onChange={(e) => setElasticity(+e.target.value)} className={inp} />
-        </Field>
-        <button onClick={run} disabled={busy} className={btn}>
-          {busy ? "Analysing…" : "Run sensitivity"}
-        </button>
-        {error && <div className="mt-2 text-sm text-red-700">{error}</div>}
+    <>
+      <Card className="mb-3 p-4">
+        <div className="text-[11px] uppercase tracking-wide text-muted">Today (baseline)</div>
+        <div className="text-lg font-semibold">Profit {naira(sim.baseline.net_profit)}</div>
+        <div className="text-xs text-muted">on revenue {naira(sim.baseline.revenue)}</div>
       </Card>
-
-      <Card className="p-4 lg:col-span-2">
-        <div className="mb-3 flex items-center justify-between">
-          <div className="text-sm font-medium">Impact on net profit</div>
-          {result && <ProvenanceBadge origin="MODEL_OUTPUT" />}
-        </div>
-        {!result ? (
-          <Muted>Run the analysis to see the tornado ranking.</Muted>
-        ) : (
-          <div>
-            <div className="mb-3 text-xs text-muted">Base net profit: {money(result.base_value)}</div>
-            <div className="space-y-2">
-              {result.ranking.map((r) => (
-                <div key={r.variable}>
-                  <div className="mb-0.5 flex justify-between text-xs">
-                    <span className="font-mono">{r.variable}</span>
-                    <span className="text-muted">
-                      {money(r.low_value)} … {money(r.high_value)} · swing {money(r.swing)}
-                    </span>
-                  </div>
-                  <div className="h-3 w-full rounded bg-wash">
-                    <div
-                      className="h-3 rounded bg-ink"
-                      style={{ width: `${(r.swing / max) * 100}%` }}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </Card>
-    </div>
+      <div className="mb-2 text-sm font-medium">What each change would do (best first)</div>
+      <div className="space-y-1.5">
+        {(sim.outcomes ?? []).map((o) => (
+          <OutcomeRow key={o.name} o={o} baselineProfit={sim.baseline.net_profit} />
+        ))}
+      </div>
+      <p className="mt-3 text-[11px] text-muted">
+        A model projection using your current figures and a standard price-response assumption.
+        Not a guarantee.
+      </p>
+    </>
   );
 }
 
-/* ---------------- Compare ---------------- */
-function CompareTab() {
-  const [rows, setRows] = useState([
-    { name: "Raise 10%", pct: 10 },
-    { name: "Raise 5%", pct: 5 },
-    { name: "Hold", pct: 0 },
-  ]);
-  const [elasticity, setElasticity] = useState(-0.8);
-  const [result, setResult] = useState<Comparison | null>(null);
-  const [busy, setBusy] = useState(false);
+function AutoTab() {
+  const [sim, setSim] = useState<PlainSim | null>(null);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function run() {
-    setBusy(true);
+    setLoading(true);
     setError(null);
     try {
-      const scenarios = rows.map((r) => ({
-        name: r.name,
-        parameters: r.pct === 0 ? {} : { price_change_percent: r.pct },
-        assumptions: { price_elasticity: elasticity },
-      }));
-      setResult(await api.compare(scenarios));
+      setSim(await api.runAutoSimulation());
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed");
+      setError(e instanceof Error ? e.message : "Could not run the simulation");
     } finally {
-      setBusy(false);
+      setLoading(false);
     }
   }
 
   return (
     <div>
-      <Card className="mb-4 p-4">
-        <div className="mb-3 text-sm font-medium">Strategies (price change %)</div>
-        <div className="flex flex-wrap items-end gap-3">
-          {rows.map((r, i) => (
-            <div key={i} className="flex items-end gap-1">
-              <div>
-                <label className="mb-1 block text-xs text-muted">Name</label>
-                <input
-                  value={r.name}
-                  onChange={(e) =>
-                    setRows((rs) => rs.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))
-                  }
-                  className="w-28 rounded border border-line px-2 py-1.5 text-sm"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs text-muted">%</label>
-                <input
-                  type="number"
-                  value={r.pct}
-                  onChange={(e) =>
-                    setRows((rs) => rs.map((x, j) => (j === i ? { ...x, pct: +e.target.value } : x)))
-                  }
-                  className="w-16 rounded border border-line px-2 py-1.5 text-sm"
-                />
-              </div>
-            </div>
-          ))}
-          <div>
-            <label className="mb-1 block text-xs text-muted">Elasticity</label>
-            <input
-              type="number"
-              step="0.1"
-              value={elasticity}
-              onChange={(e) => setElasticity(+e.target.value)}
-              className="w-20 rounded border border-line px-2 py-1.5 text-sm"
-            />
-          </div>
-          <button onClick={run} disabled={busy} className={btn + " w-auto px-4"}>
-            {busy ? "Comparing…" : "Compare"}
+      {!sim && (
+        <Card className="p-6 text-center">
+          <p className="mb-3 text-sm text-muted">
+            One click runs every idea — raising or cutting prices, selling more or less,
+            supplier cost going up or down — and ranks them by profit.
+          </p>
+          <button
+            onClick={run}
+            disabled={loading}
+            className="rounded bg-ink px-5 py-2.5 text-sm font-medium text-paper disabled:opacity-40"
+          >
+            {loading ? "Running…" : "Run simulation"}
           </button>
-        </div>
-        {error && <div className="mt-2 text-sm text-red-700">{error}</div>}
-      </Card>
-
-      {result && (
-        <Card className="p-4">
-          <div className="mb-2 text-sm">
-            Best by net profit:{" "}
-            <span className="font-medium">{result.best_by_net_profit}</span>
-          </div>
-          <div className="overflow-x-auto rounded border border-line">
-            <table className="min-w-full text-sm">
-              <thead className="bg-wash text-left text-xs uppercase tracking-wide text-muted">
-                <tr>
-                  <th className="px-3 py-2">Strategy</th>
-                  {result.metrics.map((m) => (
-                    <th key={m} className="px-3 py-2">
-                      {m}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                <tr className="border-t border-line bg-wash/50 tabular-nums">
-                  <td className="px-3 py-2 font-medium">Baseline</td>
-                  {result.metrics.map((m) => (
-                    <td key={m} className="px-3 py-2">
-                      {fmt(m, result.baseline[m])}
-                    </td>
-                  ))}
-                </tr>
-                {result.scenarios.map((s) => (
-                  <tr
-                    key={s.name}
-                    className={`border-t border-line tabular-nums ${
-                      s.name === result.best_by_net_profit ? "bg-green-500/15" : ""
-                    }`}
-                  >
-                    <td className="px-3 py-2 font-medium">{s.name}</td>
-                    {result.metrics.map((m) => (
-                      <td key={m} className="px-3 py-2">
-                        {fmt(m, s.values[m])}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
         </Card>
+      )}
+      {error && <div className="mb-3 text-sm text-red-700">{error}</div>}
+      {sim && (
+        <>
+          <div className="mb-3 flex items-center gap-2">
+            <button
+              onClick={run}
+              disabled={loading}
+              className="rounded bg-ink px-4 py-2 text-sm font-medium text-paper disabled:opacity-40"
+            >
+              {loading ? "Running…" : "Run again"}
+            </button>
+            <span className="text-xs text-muted">Best: {sim.best} · Worst: {sim.worst}</span>
+          </div>
+          <AutoResult sim={sim} />
+        </>
       )}
     </div>
   );
 }
 
-/* ---------------- shared bits ---------------- */
-const inp = "w-full rounded border border-line px-2 py-1.5 text-sm outline-none focus:border-ink";
-const btn = "mt-2 w-full rounded bg-ink px-3 py-2 text-sm font-medium text-paper disabled:opacity-50";
+function ManualTab() {
+  const [price, setPrice] = useState(0);
+  const [sales, setSales] = useState(0);
+  const [cost, setCost] = useState(0);
+  const [sim, setSim] = useState<PlainSim | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  async function run() {
+    setLoading(true);
+    setError(null);
+    try {
+      setSim(
+        await api.runManualSimulation({
+          price_change_percent: price,
+          demand_change_percent: sales,
+          unit_cost_change_percent: cost,
+        }),
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not run the simulation");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const r = sim?.result;
   return (
-    <div className="mb-3">
-      <label className="mb-1 block text-xs text-muted">{label}</label>
-      {children}
+    <div className="grid gap-4 lg:grid-cols-2">
+      <Card className="p-4">
+        <div className="mb-3 text-sm font-medium">Change these, then run</div>
+        <Slider label="Change prices" value={price} onChange={setPrice} />
+        <Slider label="Change how much you sell" value={sales} onChange={setSales} />
+        <Slider label="Change supplier cost" value={cost} onChange={setCost} />
+        <button
+          onClick={run}
+          disabled={loading}
+          className="mt-3 rounded bg-ink px-4 py-2 text-sm font-medium text-paper disabled:opacity-40"
+        >
+          {loading ? "Running…" : "Run"}
+        </button>
+        {error && <div className="mt-2 text-sm text-red-700">{error}</div>}
+      </Card>
+
+      <Card className="p-4">
+        <div className="mb-2 text-sm font-medium">Result</div>
+        {!sim ? (
+          <div className="text-sm text-muted">Set your changes and press Run.</div>
+        ) : (
+          <>
+            <div className="mb-2 text-xs text-muted">
+              Today: profit {naira(sim.baseline.net_profit)} · revenue {naira(sim.baseline.revenue)}
+            </div>
+            <div className="rounded border border-line p-3">
+              <div className="text-[11px] uppercase tracking-wide text-muted">If you do this</div>
+              <div className="text-lg font-semibold">Profit {naira(r?.net_profit)}</div>
+              <div className={`text-sm ${VERDICT_STYLE[r?.verdict ?? ""] ?? ""}`}>
+                {(r?.net_profit_delta ?? 0) >= 0 ? "+" : ""}
+                {naira(r?.net_profit_delta)} ({(r?.net_profit_pct ?? 0) >= 0 ? "+" : ""}
+                {r?.net_profit_pct}%) · {r?.verdict}
+              </div>
+              <div className="mt-1 text-xs text-muted">Revenue {naira(r?.revenue)}</div>
+            </div>
+          </>
+        )}
+      </Card>
     </div>
   );
 }
-function TwoCol({ label, children }: { label: string; children: React.ReactNode }) {
+
+function Slider({ label, value, onChange }: { label: string; value: number; onChange: (n: number) => void }) {
   return (
     <div className="mb-3">
-      <label className="mb-1 block text-xs text-muted">{label}</label>
-      <div className="grid grid-cols-2 gap-2">{children}</div>
-    </div>
-  );
-}
-function Stat({ label, value, danger }: { label: string; value: string; danger?: boolean }) {
-  return (
-    <div className="rounded border border-line p-2">
-      <div className="text-[10px] uppercase tracking-wide text-muted">{label}</div>
-      <div className={`text-lg font-semibold tabular-nums ${danger ? "text-red-700" : ""}`}>
-        {value}
+      <div className="mb-1 flex items-center justify-between text-xs">
+        <span>{label}</span>
+        <span className={`font-medium ${value === 0 ? "text-muted" : ""}`}>
+          {value > 0 ? "+" : ""}
+          {value}%
+        </span>
       </div>
+      <input
+        type="range"
+        min={-30}
+        max={30}
+        step={5}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="w-full"
+      />
     </div>
   );
 }
-function Bars({ rows }: { rows: { label: string; value: number; raw: number }[] }) {
-  const max = Math.max(...rows.map((r) => r.value), 1);
+
+function HistoryTab() {
+  const [runs, setRuns] = useState<Simulation[]>([]);
+  const [selected, setSelected] = useState<PlainSim | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    api
+      .listSimulations()
+      .then((r) => setRuns(r.items.filter((s) => s.scenario_type === "auto_explore" || s.scenario_type === "manual")))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  async function open(id: number) {
+    try {
+      setSelected(await api.plainSimulation(id));
+    } catch {
+      /* ignore */
+    }
+  }
+
   return (
-    <div className="space-y-1.5">
-      {rows.map((r) => (
-        <div key={r.label}>
-          <div className="mb-0.5 flex justify-between text-xs">
-            <span className="font-mono">{r.label}</span>
-            <span className="text-muted">r = {r.raw}</span>
-          </div>
-          <div className="h-2.5 w-full rounded bg-wash">
-            <div
-              className={`h-2.5 rounded ${r.raw >= 0 ? "bg-ink" : "bg-red-600"}`}
-              style={{ width: `${(r.value / max) * 100}%` }}
-            />
-          </div>
+    <div className="grid gap-4 lg:grid-cols-2">
+      <Card className="p-4">
+        <div className="mb-2 text-sm font-medium">Past runs</div>
+        {loading && <div className="text-sm text-muted">Loading…</div>}
+        {!loading && runs.length === 0 && (
+          <div className="text-sm text-muted">No saved runs yet.</div>
+        )}
+        <div className="space-y-1">
+          {runs.map((s) => (
+            <button
+              key={s.id}
+              onClick={() => open(s.id)}
+              className="block w-full rounded border border-line px-3 py-2 text-left text-sm hover:bg-wash"
+            >
+              <div className="flex items-center justify-between">
+                <span>{s.scenario_type === "auto_explore" ? "Auto explore" : "Manual"}</span>
+                <span className="text-xs text-muted">
+                  {s.created_at ? new Date(s.created_at).toLocaleString("en-NG", { dateStyle: "medium", timeStyle: "short" }) : ""}
+                </span>
+              </div>
+            </button>
+          ))}
         </div>
-      ))}
+      </Card>
+
+      <Card className="p-4">
+        <div className="mb-2 text-sm font-medium">Run detail</div>
+        {!selected ? (
+          <div className="text-sm text-muted">Pick a run to see it.</div>
+        ) : selected.kind === "auto_explore" ? (
+          <AutoResult sim={selected} />
+        ) : (
+          <div>
+            <div className="mb-2 text-xs text-muted">
+              Changes: prices {selected.inputs?.price_change_percent ?? 0}% · sales{" "}
+              {selected.inputs?.demand_change_percent ?? 0}% · cost{" "}
+              {selected.inputs?.unit_cost_change_percent ?? 0}%
+            </div>
+            {selected.result && (
+              <OutcomeRow o={selected.result} baselineProfit={selected.baseline.net_profit} />
+            )}
+          </div>
+        )}
+      </Card>
     </div>
   );
 }
-function AssumptionsBlock({ a }: { a: Record<string, unknown> }) {
-  return (
-    <div className="mt-3">
-      <div className="text-xs font-medium text-muted">Assumptions</div>
-      <pre className="mt-1 overflow-x-auto rounded border border-line bg-wash p-2 text-[11px]">
-        {JSON.stringify(a, null, 2)}
-      </pre>
-    </div>
-  );
-}
-const Muted = ({ children }: { children: React.ReactNode }) => (
-  <div className="text-sm text-muted">{children}</div>
-);

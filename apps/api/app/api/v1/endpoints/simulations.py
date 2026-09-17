@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
@@ -88,6 +89,50 @@ def compare(
 ) -> dict:
     baseline = baseline_economics(db)
     return compare_scenarios(baseline, [s.model_dump() for s in payload.scenarios])
+
+
+class ManualRequest(BaseModel):
+    price_change_percent: float = 0.0
+    demand_change_percent: float = 0.0
+    unit_cost_change_percent: float = 0.0
+    price_elasticity: float = -0.8
+
+
+@router.post("/simulations/auto")
+def auto_explore(
+    db: Session = Depends(db_session),
+    user: User = Depends(require_role(Role.STAFF)),
+) -> dict:
+    """One click: run every preset 'what if' and rank them in plain English."""
+    from app.services.simulation.auto import auto_explore as _auto
+    return _auto(db, user_id=user.id)
+
+
+@router.post("/simulations/manual")
+def manual_scenario(
+    payload: ManualRequest,
+    db: Session = Depends(db_session),
+    user: User = Depends(require_role(Role.STAFF)),
+) -> dict:
+    """Run one owner-chosen change (price / sales / supplier cost) vs today."""
+    from app.services.simulation.auto import manual_scenario as _manual
+    return _manual(
+        db, price_change_percent=payload.price_change_percent,
+        demand_change_percent=payload.demand_change_percent,
+        unit_cost_change_percent=payload.unit_cost_change_percent,
+        elasticity=payload.price_elasticity, user_id=user.id,
+    )
+
+
+@router.get("/simulations/{run_id}/plain")
+def get_plain_simulation(
+    run_id: int, db: Session = Depends(db_session), _: User = Depends(get_current_user)
+) -> dict:
+    """The stored plain-language payload for an auto/manual run (history replay)."""
+    obj = db.get(SimulationRun, run_id)
+    if obj is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Simulation {run_id} not found")
+    return obj.result_json or {"kind": obj.scenario_type, "note": "no plain-language payload"}
 
 
 @router.get("/simulations")

@@ -31,6 +31,8 @@ class SimulationRun(Base, TimestampMixin):
     status: Mapped[str] = mapped_column(String(32), default=SimulationStatus.PENDING.value)
     warnings: Mapped[list] = mapped_column(JSON, default=list)
     created_by_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # For auto-explore / manual runs: the full comparison payload for history replay.
+    result_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     results: Mapped[list[SimulationResult]] = relationship(
         back_populates="run", cascade="all, delete-orphan"

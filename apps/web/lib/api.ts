@@ -185,6 +185,14 @@ export const api = {
   runSimulation: (id: number) =>
     request<Simulation>(`/simulations/${id}/run`, { method: "POST" }),
   listSimulations: () => request<{ items: Simulation[]; total: number }>("/simulations"),
+  // Plain-language simulation (auto explore / manual / history).
+  runAutoSimulation: () => request<PlainSim>("/simulations/auto", { method: "POST" }),
+  runManualSimulation: (body: {
+    price_change_percent: number;
+    demand_change_percent: number;
+    unit_cost_change_percent: number;
+  }) => request<PlainSim>("/simulations/manual", { method: "POST", body: JSON.stringify(body) }),
+  plainSimulation: (id: number) => request<PlainSim>(`/simulations/${id}/plain`),
 
   // ---- Phase 3: advanced simulation ----
   monteCarlo: (body: unknown) =>
@@ -438,6 +446,29 @@ export interface SimResult {
   detail: string | null;
 }
 
+export interface SimOutcome {
+  name: string;
+  net_profit: number;
+  net_profit_delta: number;
+  net_profit_pct: number;
+  revenue: number;
+  revenue_delta: number;
+  verdict: string;
+  gross_margin?: number;
+}
+export interface PlainSim {
+  kind: string;
+  as_of: string;
+  run_id?: number;
+  baseline: { net_profit: number; revenue: number; gross_margin?: number };
+  best?: string;
+  worst?: string;
+  outcomes?: SimOutcome[];
+  inputs?: Record<string, number>;
+  result?: SimOutcome;
+  note?: string;
+}
+
 export interface Simulation {
   id: number;
   name: string;
@@ -450,6 +481,7 @@ export interface Simulation {
   assumptions: Record<string, unknown>;
   warnings: string[];
   results: SimResult[];
+  created_at?: string;
 }
 
 // ---- Phase 8 types ----
