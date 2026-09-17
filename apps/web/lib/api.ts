@@ -151,6 +151,7 @@ export const api = {
   productImages: (id: number) =>
     request<{ items: ProductImage[] }>(`/products/${id}/images`),
   productHistory: (id: number) => request<ProductHistory>(`/products/${id}/history`),
+  supplierTrace: (id: number) => request<SupplierTrace>(`/suppliers/${id}/trace`),
   addProductImageUrl: (id: number, url: string) =>
     request<ProductImage>(`/products/${id}/image-url`, { method: "POST", body: JSON.stringify({ url }) }),
   setPrimaryImage: (id: number, imageId: number) =>
@@ -737,6 +738,52 @@ export interface ProductHistory {
   product_id: number;
   counts: { stock_events: number; price_changes: number };
   events: ProductHistoryEvent[];
+}
+
+export interface SupplierTraceProduct {
+  product_id: number;
+  product_code: string | null;
+  product_name: string | null;
+  total_received: number;
+  last_received: string | null;
+}
+export interface SupplierTraceShipment {
+  lot_code: string | null;
+  product: string | null;
+  warehouse: string | null;
+  received_date: string | null;
+  quantity: number;
+  unit_cost: number | null;
+  shipment_ref: string | null;
+  vessel_mmsi: string | null;
+  purchase_id: number | null;
+}
+export interface SupplierTracePayment {
+  amount: number;
+  method: string | null;
+  paid_at: string;
+  reference: string | null;
+  txid: string | null;
+  from_account: string | null;
+  from_name: string | null;
+  to_account: string | null;
+  to_name: string | null;
+}
+export interface SupplierTrace {
+  status: string;
+  supplier_id: number;
+  supplier_code: string | null;
+  supplier_name: string;
+  location: string | null;
+  currency: string | null;
+  lead_time_days: number | null;
+  reliability_score: number | null;
+  products: SupplierTraceProduct[];
+  warehouses: string[];
+  shipments: SupplierTraceShipment[];
+  we_owe: number;
+  payments: SupplierTracePayment[];
+  provenance: string;
 }
 
 export interface ProductImage {

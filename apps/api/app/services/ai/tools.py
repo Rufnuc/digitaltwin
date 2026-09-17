@@ -507,6 +507,21 @@ def _resolve_customer_id(db: Session, customer=None, customer_id=None) -> int | 
     return None
 
 
+def _resolve_supplier_id(db: Session, supplier=None, supplier_id=None) -> int | None:
+    from app.models.supplier import Supplier
+    if supplier_id is not None:
+        try:
+            return int(supplier_id)
+        except (TypeError, ValueError):
+            return None
+    if supplier:
+        row = db.scalar(select(Supplier).where(
+            or_(Supplier.code == str(supplier), Supplier.name.ilike(f"%{supplier}%"))
+        ))
+        return row.id if row else None
+    return None
+
+
 # --------------------------------------------------------------------------- #
 # Money — accounts receivable (who owes what, record payments).
 # --------------------------------------------------------------------------- #
@@ -581,6 +596,39 @@ def _payables_summary(db: Session) -> dict:
 def _cash_flow(db: Session, days: int = 30) -> dict:
     from app.services import cashflow
     return cashflow.cash_flow_summary(db, days=int(days))
+
+
+def _supplier_trace(db: Session, supplier=None, supplier_id=None) -> dict:
+    """A supplier's full picture: products supplied, warehouses, shipments and
+    the payments made (with bank/txid detail)."""
+    from app.services import supplier_trace
+    sid = _resolve_supplier_id(db, supplier=supplier, supplier_id=supplier_id)
+    if sid is None:
+        return {"error": "supplier not found; give a supplier name or code"}
+    r = supplier_trace.supplier_detail(db, sid)
+    if r.get("status") == "NOT_FOUND":
+        return {"error": "supplier not found"}
+    return {
+        "supplier": r["supplier_name"], "code": r["supplier_code"],
+        "location": r["location"], "we_owe": r["we_owe"],
+        "products": [
+            {"product": p["product_name"], "code": p["product_code"],
+             "total_received": p["total_received"], "last_received": p["last_received"]}
+            for p in r["products"][:20]
+        ],
+        "warehouses": r["warehouses"],
+        "recent_shipments": [
+            {"product": s["product"], "warehouse": s["warehouse"],
+             "received": s["received_date"], "quantity": s["quantity"],
+             "unit_cost": s["unit_cost"], "shipment_ref": s["shipment_ref"]}
+            for s in r["shipments"][:10]
+        ],
+        "recent_payments": [
+            {"amount": p["amount"], "method": p["method"], "paid_at": p["paid_at"],
+             "reference": p["reference"], "to_name": p["to_name"]}
+            for p in r["payments"][:10]
+        ],
+    }
 
 
 def _tax_estimate(db: Session) -> dict:
@@ -1234,6 +1282,20 @@ TOOLS: list[ToolDef] = [
         "I owe', 'what do I owe suppliers', 'payables'.",
         {"type": "object", "properties": {}},
         _payables_summary, provenance="REAL", mutating=False, min_role=Role.MANAGER.value,
+    ),
+    ToolDef(
+        "get_supplier_trace",
+        "Full traceability for one supplier: which products they've supplied (with "
+        "quantities received), the warehouses their stock landed in, recent shipments "
+        "(with shipment ref / vessel), what we still owe them, and recent payments "
+        "(amount, method, reference, payee). Use for 'where do I get product X', "
+        "'show me supplier Y's shipments', 'what have I paid supplier Y', or tying a "
+        "product back to its source. Identify the supplier by id, code, or name.",
+        {"type": "object", "properties": {
+            "supplier_id": {"type": ["integer", "string"]},
+            "supplier": {"type": "string", "description": "supplier code or name"},
+        }},
+        _supplier_trace, provenance="REAL", mutating=False, min_role=Role.STAFF.value,
     ),
     ToolDef(
         "get_cash_flow",
