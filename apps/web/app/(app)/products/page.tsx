@@ -3,7 +3,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { PageHeader } from "@/components/Shell";
 import { Card } from "@/components/ui";
 import { EntityForm, type FormField } from "@/components/EntityForm";
-import { api, getRole, imageSrc, type ProductImage as PImage } from "@/lib/api";
+import {
+  api,
+  getRole,
+  imageSrc,
+  type ProductImage as PImage,
+  type ProductHistory as ProductHistoryType,
+} from "@/lib/api";
 import { money2 } from "@/lib/format";
 import { roleAtLeast } from "@/lib/roles";
 
@@ -336,6 +342,8 @@ function ProductModal({
               )}
             </div>
 
+            <ProductHistorySection productId={id} />
+
             {editing && (
               <EntityForm
                 title={`Edit ${p.name}`}
@@ -359,6 +367,129 @@ function ProductModal({
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+const HIST_STYLE: Record<string, string> = {
+  RECEIVE: "text-green-700 dark:text-green-300",
+  SALE: "text-blue-700 dark:text-blue-300",
+  ADJUST: "text-yellow-700 dark:text-yellow-300",
+  PRICE_CHANGE: "text-purple-700 dark:text-purple-300",
+};
+
+function ProductHistorySection({ productId }: { productId: number }) {
+  const [hist, setHist] = useState<ProductHistoryType | null>(null);
+  const [q, setQ] = useState("");
+  const [typeFilter, setTypeFilter] = useState("");
+  const [sortDir, setSortDir] = useState<"desc" | "asc">("desc");
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    api
+      .productHistory(productId)
+      .then((r) => alive && setHist(r))
+      .catch((e) => alive && setError(e instanceof Error ? e.message : "Could not load history"));
+    return () => {
+      alive = false;
+    };
+  }, [productId]);
+
+  const events = hist?.events ?? [];
+  const types = Array.from(new Set(events.map((e) => e.type)));
+  const filtered = events
+    .filter((e) => (typeFilter ? e.type === typeFilter : true))
+    .filter((e) => {
+      if (!q) return true;
+      const hay = [e.type, e.warehouse, e.customer, e.invoice, e.user, e.note]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return hay.includes(q.toLowerCase());
+    })
+    .sort((a, b) => {
+      const cmp = (a.at ?? "").localeCompare(b.at ?? "");
+      return sortDir === "desc" ? -cmp : cmp;
+    });
+
+  const money = (n: number | null | undefined) =>
+    n == null ? "" : "₦" + Math.round(n).toLocaleString("en-NG");
+  const when = (iso: string | null) =>
+    iso ? new Date(iso).toLocaleString("en-NG", { dateStyle: "medium", timeStyle: "short" }) : "";
+
+  return (
+    <div className="mt-4 border-t border-line pt-3">
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <span className="text-sm font-medium">History</span>
+        {hist && (
+          <span className="text-[11px] text-muted">
+            {hist.counts.stock_events} stock · {hist.counts.price_changes} price changes
+          </span>
+        )}
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Search…"
+          className="ml-auto w-32 rounded border border-line bg-paper px-2 py-1 text-xs outline-none focus:border-ink"
+        />
+        <select
+          value={typeFilter}
+          onChange={(e) => setTypeFilter(e.target.value)}
+          className="rounded border border-line bg-paper px-2 py-1 text-xs"
+        >
+          <option value="">All</option>
+          {types.map((t) => (
+            <option key={t} value={t}>
+              {t.replace(/_/g, " ")}
+            </option>
+          ))}
+        </select>
+        <button
+          onClick={() => setSortDir((d) => (d === "desc" ? "asc" : "desc"))}
+          className="rounded border border-line px-2 py-1 text-xs hover:bg-wash"
+          title="Toggle sort"
+        >
+          {sortDir === "desc" ? "Newest ↓" : "Oldest ↑"}
+        </button>
+      </div>
+      {error && <div className="text-xs text-red-700">{error}</div>}
+      {!hist ? (
+        <div className="text-xs text-muted">Loading…</div>
+      ) : filtered.length === 0 ? (
+        <div className="text-xs text-muted">No history yet.</div>
+      ) : (
+        <div className="max-h-64 space-y-1 overflow-y-auto">
+          {filtered.map((e, i) => (
+            <div key={i} className="flex items-start gap-2 rounded border border-line px-2 py-1.5 text-xs">
+              <span className={`w-24 shrink-0 font-medium ${HIST_STYLE[e.type] ?? ""}`}>
+                {e.type.replace(/_/g, " ")}
+              </span>
+              <div className="min-w-0 flex-1">
+                {e.kind === "PRICE" ? (
+                  <span>
+                    Sell {money(e.selling_price)}
+                    {e.purchase_cost != null ? ` · cost ${money(e.purchase_cost)}` : ""}
+                  </span>
+                ) : (
+                  <span>
+                    {e.quantity != null ? `${e.quantity > 0 ? "+" : ""}${e.quantity} units` : ""}
+                    {e.warehouse ? ` · ${e.warehouse}` : ""}
+                    {e.customer ? ` · to ${e.customer}` : ""}
+                    {e.invoice ? ` · ${e.invoice}` : ""}
+                    {e.unit_cost != null ? ` · @ ${money(e.unit_cost)}` : ""}
+                  </span>
+                )}
+                <div className="text-muted">
+                  {when(e.at)}
+                  {e.user ? ` · by ${e.user}` : ""}
+                  {e.note ? ` · ${e.note}` : ""}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

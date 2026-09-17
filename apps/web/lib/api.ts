@@ -150,6 +150,7 @@ export const api = {
     request<InvoiceDetail>(`/invoices/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   productImages: (id: number) =>
     request<{ items: ProductImage[] }>(`/products/${id}/images`),
+  productHistory: (id: number) => request<ProductHistory>(`/products/${id}/history`),
   addProductImageUrl: (id: number, url: string) =>
     request<ProductImage>(`/products/${id}/image-url`, { method: "POST", body: JSON.stringify({ url }) }),
   setPrimaryImage: (id: number, imageId: number) =>
@@ -718,6 +719,26 @@ export interface ShippingStatus {
   last_message_at: string | null;
   error: string | null;
 }
+export interface ProductHistoryEvent {
+  kind: string; // STOCK | PRICE
+  type: string; // RECEIVE | SALE | TRANSFER_* | ADJUST | PRICE_CHANGE
+  at: string | null;
+  quantity?: number;
+  unit_cost?: number | null;
+  warehouse?: string | null;
+  customer?: string | null;
+  invoice?: string | null;
+  user?: string | null;
+  note?: string | null;
+  selling_price?: number | null;
+  purchase_cost?: number | null;
+}
+export interface ProductHistory {
+  product_id: number;
+  counts: { stock_events: number; price_changes: number };
+  events: ProductHistoryEvent[];
+}
+
 export interface ProductImage {
   id: number;
   url: string;

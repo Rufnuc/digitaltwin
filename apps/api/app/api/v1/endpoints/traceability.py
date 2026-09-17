@@ -8,9 +8,20 @@ from sqlalchemy.orm import Session
 from app.api.deps import db_session, get_current_user, require_role
 from app.core.enums import Role
 from app.models.user import User
+from app.services import product_history as phist
 from app.services import supplier_trace
 
 router = APIRouter(tags=["traceability"])
+
+
+@router.get("/products/{product_id}/history")
+def product_history_endpoint(
+    product_id: int,
+    db: Session = Depends(db_session),
+    _: User = Depends(get_current_user),
+) -> dict:
+    """A product's full timeline: stock movements and price changes."""
+    return phist.product_history(db, product_id)
 
 
 @router.get("/suppliers/{supplier_id}/trace")
