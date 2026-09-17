@@ -3,7 +3,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { PageHeader } from "@/components/Shell";
 import { Card, ProvenanceBadge } from "@/components/ui";
-import { api, getRole, type InvoiceDetail, type InvoiceVersionRow } from "@/lib/api";
+import { api, getRole, newIdempotencyKey, type InvoiceDetail, type InvoiceVersionRow } from "@/lib/api";
 import { printInvoice } from "@/lib/printInvoice";
 import { money2 } from "@/lib/format";
 import { roleAtLeast } from "@/lib/roles";
@@ -496,6 +496,7 @@ function PaymentModal({
   const [toName, setToName] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [idemKey] = useState(() => newIdempotencyKey());
   const isTransfer = method !== "cash";
 
   async function submit() {
@@ -511,7 +512,7 @@ function PaymentModal({
         amount: amt, method, reference,
         txid: txid || null, from_account: fromAccount || null, from_name: fromName || null,
         to_account: toAccount || null, to_name: toName || null,
-      });
+      }, idemKey);
       onDone();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Could not record payment");

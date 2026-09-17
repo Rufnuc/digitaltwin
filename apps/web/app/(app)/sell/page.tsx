@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { PageHeader } from "@/components/Shell";
 import { Card } from "@/components/ui";
 import { EntityForm, type FormField } from "@/components/EntityForm";
-import { api, getRole } from "@/lib/api";
+import { api, getRole, newIdempotencyKey } from "@/lib/api";
 import { money2 } from "@/lib/format";
 import { roleAtLeast } from "@/lib/roles";
 
@@ -55,6 +55,9 @@ export default function SellPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
+  // One idempotency key per sale attempt: reused on retry (safe against a lost
+  // response), regenerated after a success so the next sale is a distinct action.
+  const [idemKey, setIdemKey] = useState(() => newIdempotencyKey());
 
   const canSell = roleAtLeast(getRole(), "STAFF");
 
@@ -156,9 +159,10 @@ export default function SellPage() {
           quantity: Number(l.quantity),
           unit_price: Number(l.unit_price) || 0,
         })),
-      });
+      }, idemKey);
       const inv = res.invoice as { invoice_number?: string };
       setDone(`Sale recorded: ${inv.invoice_number}. Stock drawn from the sale location and each unit traced to the buyer.`);
+      setIdemKey(newIdempotencyKey());  // next sale is a new action
     } catch (e) {
       setError(e instanceof Error ? e.message : "Sale failed");
     } finally {

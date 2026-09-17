@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { PageHeader } from "@/components/Shell";
 import { ResourceTable, type Column, type FilterSpec, type FormField } from "@/components/DataTable";
-import { api } from "@/lib/api";
+import { api, newIdempotencyKey } from "@/lib/api";
 import { money } from "@/lib/format";
 
 const STATUS = ["ACTIVE", "INACTIVE", "PROSPECT", "ARCHIVED"];
@@ -177,6 +177,7 @@ function InvoicePaymentModal({
   const [reference, setReference] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [idemKey] = useState(() => newIdempotencyKey());
 
   async function submit() {
     const amt = Number(amount);
@@ -187,7 +188,7 @@ function InvoicePaymentModal({
     setBusy(true);
     setErr(null);
     try {
-      await api.recordPayment(invoice.id, { amount: amt, method, reference });
+      await api.recordPayment(invoice.id, { amount: amt, method, reference }, idemKey);
       onDone();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Could not record payment");

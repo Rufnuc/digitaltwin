@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   api,
+  type AssistantProposal,
   type AssistantResponse,
   type ConversationDetail,
   type ConversationSummary,
@@ -386,6 +387,10 @@ function AnswerCard({ r }: { r: AssistantResponse }) {
         </div>
       )}
 
+      {(r.proposals ?? []).map((p) => (
+        <ProposalCard key={p.confirmation_token} proposal={p} />
+      ))}
+
       {r.tool_calls.length > 0 && (
         <div className="mt-3">
           <button
@@ -415,5 +420,66 @@ function AnswerCard({ r }: { r: AssistantResponse }) {
 
       <div className="mt-3 border-t border-line pt-2 text-[11px] text-muted">{r.disclaimer}</div>
     </Card>
+  );
+}
+
+// A proposed assistant write awaiting explicit confirmation (two-step confirm-gating).
+// Nothing has been written yet; the change only happens when the user presses Confirm.
+function ProposalCard({ proposal }: { proposal: AssistantProposal }) {
+  const [state, setState] = useState<"pending" | "confirming" | "done" | "dismissed">("pending");
+  const [error, setError] = useState<string | null>(null);
+
+  async function confirm() {
+    setState("confirming");
+    setError(null);
+    try {
+      await api.assistantConfirm(proposal.confirmation_token);
+      setState("done");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not apply the change");
+      setState("pending");
+    }
+  }
+
+  if (state === "done") {
+    return (
+      <div className="mt-2 rounded border border-green-500/30 bg-green-500/15 px-2 py-1.5 text-xs text-green-700 dark:text-green-300">
+        ✓ Change applied: {proposal.action.replace(/_/g, " ")}
+      </div>
+    );
+  }
+  if (state === "dismissed") {
+    return (
+      <div className="mt-2 rounded border border-line px-2 py-1.5 text-xs text-muted">
+        Change dismissed — nothing was applied.
+      </div>
+    );
+  }
+  return (
+    <div className="mt-2 rounded border border-amber-500/40 bg-amber-500/10 px-2.5 py-2 text-xs">
+      <div className="mb-1.5 font-medium text-amber-700 dark:text-amber-300">
+        ⚠ Needs your confirmation — no change has been made yet
+      </div>
+      <div className="mb-2 text-muted">
+        {proposal.message ?? `Ready to ${proposal.action.replace(/_/g, " ")}.`}
+      </div>
+      {error && <div className="mb-2 text-red-700">{error}</div>}
+      <div className="flex gap-2">
+        <button
+          onClick={confirm}
+          disabled={state === "confirming"}
+          className="rounded bg-ink px-3 py-1 font-medium text-paper disabled:opacity-40"
+        >
+          {state === "confirming" ? "Applying…" : "Confirm"}
+        </button>
+        <button
+          onClick={() => setState("dismissed")}
+          disabled={state === "confirming"}
+          className="rounded border border-line px-3 py-1 hover:bg-wash disabled:opacity-40"
+        >
+          Dismiss
+        </button>
+      </div>
+    </div>
   );
 }

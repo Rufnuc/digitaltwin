@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   api,
+  newIdempotencyKey,
   type ReceivablesSummary,
   type OverdueInvoice,
   type OverdueList,
@@ -173,6 +174,7 @@ function PaymentModal({
   const [reference, setReference] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [idemKey] = useState(() => newIdempotencyKey());
 
   async function submit() {
     const amt = Number(amount);
@@ -183,7 +185,7 @@ function PaymentModal({
     setBusy(true);
     setErr(null);
     try {
-      await api.recordPayment(invoice.invoice_id, { amount: amt, method, reference });
+      await api.recordPayment(invoice.invoice_id, { amount: amt, method, reference }, idemKey);
       onDone();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Could not record payment");

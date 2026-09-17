@@ -57,6 +57,18 @@ export class ApiError extends Error {
   }
 }
 
+// A fresh idempotency key per submit action. The same key is reused across retries
+// of one logical submission (so a lost-response retry is safe) and regenerated after
+// a success, so the backend records exactly one write per action.
+export function newIdempotencyKey(): string {
+  try {
+    if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
+  } catch {
+    /* fall through */
+  }
+  return `idem-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = getToken();
   const headers: Record<string, string> = {
@@ -109,8 +121,12 @@ export const api = {
       `/${resource}${params}`,
     ),
   // Generic CRUD writes against build_crud_router resources.
-  createResource: <T>(resource: string, body: unknown) =>
-    request<T>(`/${resource}`, { method: "POST", body: JSON.stringify(body) }),
+  createResource: <T>(resource: string, body: unknown, idempotencyKey?: string) =>
+    request<T>(`/${resource}`, {
+      method: "POST",
+      body: JSON.stringify(body),
+      headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined,
+    }),
   updateResource: <T>(resource: string, id: number | string, body: unknown) =>
     request<T>(`/${resource}/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   deleteResource: (resource: string, id: number | string) =>
@@ -138,10 +154,14 @@ export const api = {
     }),
   stockAdjust: (body: unknown) =>
     request<StockLotDetail>("/stock/adjust", { method: "POST", body: JSON.stringify(body) }),
-  invoiceSell: (body: unknown) =>
+  invoiceSell: (body: unknown, idempotencyKey?: string) =>
     request<{ invoice: Record<string, unknown>; allocations: unknown[]; note: string }>(
       "/invoices/sell",
-      { method: "POST", body: JSON.stringify(body) },
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+        headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined,
+      },
     ),
   invoiceDetail: (id: number) => request<InvoiceDetail>(`/invoices/${id}`),
   invoiceVersions: (id: number) =>
@@ -218,6 +238,12 @@ export const api = {
       signal,
     }),
   assistantTools: () => request<{ tools: AssistantTool[] }>("/assistant/tools"),
+  // Execute a previously-proposed assistant write (two-step confirm-gating).
+  assistantConfirm: (confirmationToken: string) =>
+    request<{ executed: string; result: Record<string, unknown> }>("/assistant/confirm", {
+      method: "POST",
+      body: JSON.stringify({ confirmation_token: confirmationToken }),
+    }),
   // Benfieg chat history (per user).
   listConversations: () =>
     request<{ items: ConversationSummary[] }>("/assistant/conversations"),
@@ -300,10 +326,11 @@ export const api = {
   // ---- Money: accounts receivable ----
   receivablesSummary: () => request<ReceivablesSummary>("/receivables/summary"),
   overdueReceivables: () => request<OverdueList>("/receivables/overdue"),
-  recordPayment: (invoiceId: number, body: unknown) =>
+  recordPayment: (invoiceId: number, body: unknown, idempotencyKey?: string) =>
     request<Record<string, unknown>>(`/receivables/invoices/${invoiceId}/payments`, {
       method: "POST",
       body: JSON.stringify(body),
+      headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined,
     }),
   customerStatement: (customerId: number) =>
     request<CustomerStatement>(`/receivables/customers/${customerId}/statement`),
@@ -1021,6 +1048,12 @@ export interface AssistantToolCall {
   provenance: string;
   result: Record<string, unknown>;
 }
+export interface AssistantProposal {
+  action: string;
+  confirmation_token: string;
+  args?: Record<string, unknown> | null;
+  message?: string;
+}
 export interface AssistantResponse {
   question: string;
   answer: string;
@@ -1029,6 +1062,7 @@ export interface AssistantResponse {
   provenance: string;
   tool_calls: AssistantToolCall[];
   actions_taken: string[];
+  proposals?: AssistantProposal[];
   disclaimer: string;
   conversation_id?: number;
   conversation_title?: string;
