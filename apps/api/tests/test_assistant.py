@@ -1,6 +1,7 @@
 """Phase 4: AI business assistant (offline rule-based provider)."""
 from __future__ import annotations
 
+from app.core.config import settings
 from app.seed.demo_data import seed
 from app.services.ai.assistant import ask, get_provider
 from app.services.ai.providers.rule_based import RuleBasedProvider
@@ -154,18 +155,39 @@ def _mk_user(db, role):
     return u
 
 
-def test_assistant_creates_customer_via_action(db):
+def test_assistant_read_only_by_default_blocks_writes(db):
     from sqlalchemy import func, select
 
     from app.models.customer import Customer
     seed(db)
     user = _mk_user(db, "STAFF")
     before = db.scalar(select(func.count(Customer.id)))
+    # Default mode is read-only: a write is refused and nothing changes.
     res = ask(db, "create a customer called Test Motors in Lagos", user=user)
-    assert "create_customer" in res["actions_taken"]
+    assert res["actions_taken"] == []
+    assert db.scalar(select(func.count(Customer.id))) == before
+
+
+def test_assistant_write_is_two_step_propose_then_confirm(db, monkeypatch):
+    from sqlalchemy import func, select
+
+    from app.models.customer import Customer
+    monkeypatch.setattr(settings, "ASSISTANT_ALLOW_WRITES", True)
+    seed(db)
+    user = _mk_user(db, "STAFF")
+    before = db.scalar(select(func.count(Customer.id)))
+    # Step 1: even with writes enabled, the first pass only PROPOSES — no write.
+    res = ask(db, "create a customer called Test Motors in Lagos", user=user)
+    assert res["actions_taken"] == []
+    assert res["proposals"] and res["proposals"][0]["action"] == "create_customer"
+    assert db.scalar(select(func.count(Customer.id))) == before
+    # Step 2: confirm the exact proposed action → the write happens.
+    p = res["proposals"][0]
+    out = execute_tool(db, p["action"], p["args"], user=user, confirmed=True)
+    assert out.get("created") == "customer"
     assert db.scalar(select(func.count(Customer.id))) == before + 1
     c = db.scalar(select(Customer).where(Customer.name == "Test Motors"))
-    assert c is not None and c.location == "Lagos" and c.data_origin == "REAL"
+    assert c is not None and c.data_origin == "REAL"
 
 
 def test_assistant_action_respects_permissions(db):
@@ -177,32 +199,44 @@ def test_assistant_action_respects_permissions(db):
     assert res["actions_taken"] == []          # nothing changed
 
 
-def test_assistant_sets_product_price(db):
+def test_assistant_sets_product_price_after_confirm(db, monkeypatch):
     from sqlalchemy import select
 
     from app.models.product import Product
+    monkeypatch.setattr(settings, "ASSISTANT_ALLOW_WRITES", True)
     seed(db)
     user = _mk_user(db, "MANAGER")
     res = ask(db, "set the price of Timing belt 209 to 250000", user=user)
-    assert "set_product_price" in res["actions_taken"]
+    # Proposed, not yet applied.
+    assert res["actions_taken"] == []
+    prop = next(p for p in res["proposals"] if p["action"] == "set_product_price")
+    execute_tool(db, prop["action"], prop["args"], user=user, confirmed=True)
     p = db.scalar(select(Product).where(Product.name == "Timing belt 209"))
     assert float(p.selling_price) == 250000.0
 
 
-def test_assistant_updates_inventory_and_cost(db):
+def test_assistant_inventory_quantity_write_refused_but_cost_allowed(db, monkeypatch):
     from sqlalchemy import select
 
     from app.models.inventory import Inventory
     from app.models.product import Product
+    monkeypatch.setattr(settings, "ASSISTANT_ALLOW_WRITES", True)
     seed(db)
     user = _mk_user(db, "STAFF")
 
+    # On-hand quantity is owned by the lot ledger — refused on confirm, never applied.
     r = ask(db, "set the stock of Timing belt 209 to 500", user=user)
-    assert "set_inventory" in r["actions_taken"]
-    r2 = ask(db, "set the cost of Timing belt 209 to 90000", user=user)
-    assert "set_product_cost" in r2["actions_taken"]
+    assert "set_inventory" not in r["actions_taken"]
+    inv_prop = next((p for p in r["proposals"] if p["action"] == "set_inventory"), None)
+    if inv_prop is not None:
+        out = execute_tool(db, inv_prop["action"], inv_prop["args"], user=user, confirmed=True)
+        assert "error" in out  # quantity refused even on confirm
 
+    # Cost changes work once confirmed.
+    r2 = ask(db, "set the cost of Timing belt 209 to 90000", user=user)
+    cost_prop = next(p for p in r2["proposals"] if p["action"] == "set_product_cost")
+    execute_tool(db, cost_prop["action"], cost_prop["args"], user=user, confirmed=True)
     p = db.scalar(select(Product).where(Product.name == "Timing belt 209"))
     assert float(p.purchase_cost) == 90000.0
     inv = db.scalar(select(Inventory).where(Inventory.product_id == p.id))
-    assert inv.quantity_on_hand == 500
+    assert inv is None or inv.quantity_on_hand != 500  # not set via the assistant

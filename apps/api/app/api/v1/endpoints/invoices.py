@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from app.api.deps import db_session, get_current_user, require_role
@@ -13,7 +14,7 @@ from app.models.customer import Customer
 from app.models.invoice import Invoice, InvoiceLine, InvoiceVersion
 from app.models.user import User
 from app.schemas.entities import InvoiceCreate, InvoiceOut
-from app.services import audit, stock
+from app.services import audit, idempotency, stock
 
 router = APIRouter(tags=["invoices"])
 
@@ -198,6 +199,36 @@ def update_invoice(
     fields = {k: data[k] for k in _HEADER_FIELDS if k in data}
     if not fields and payload.lines is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "no changes supplied")
+
+    # Edit-after-payment / edit-after-stock protection (B2): silently editing the
+    # amounts of a paid invoice would leave receivables lying, and editing the lines
+    # of a fulfilled invoice would desync the stock ledger. Block those; corrections
+    # go through void + credit note or a stock adjustment.
+    from app.models.payment import Payment
+    from app.models.warehouse import StockMovement
+    has_payments = bool(db.scalar(
+        select(func.count()).select_from(Payment)
+        .where(Payment.invoice_id == inv.id, Payment.status == "CONFIRMED")
+    ))
+    has_stock = bool(db.scalar(
+        select(func.count()).select_from(StockMovement).where(StockMovement.invoice_id == inv.id)
+    ))
+    _AMOUNT_FIELDS = {"invoice_number", "customer_id", "tax", "discount", "shipping",
+                      "invoice_date"}
+    editing_amounts = payload.lines is not None or bool(_AMOUNT_FIELDS & set(fields))
+    if has_payments and editing_amounts:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "this invoice has recorded payments — void the payment or issue a credit "
+            "note instead of editing its amounts.",
+        )
+    if has_stock and payload.lines is not None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "this invoice has already moved stock — adjust stock or void it instead of "
+            "editing its lines.",
+        )
+
     old = {k: getattr(inv, k) for k in fields}
     for k, v in fields.items():
         setattr(inv, k, v)
@@ -217,6 +248,10 @@ def update_invoice(
                      - float(inv.discount or 0), 2)
     inv.updated_by_user_id = user.id
     inv.version_no += 1
+    # Keep amount_paid / payment_status derived from confirmed payments whenever the
+    # total could have changed (no-op when there are none).
+    from app.services.receivables import _recalc
+    _recalc(db, inv)
     db.flush()
     _record_version(db, inv, user.id, payload.change_note or "edited")
     db.commit()
@@ -237,7 +272,25 @@ def create_invoice(
     payload: InvoiceCreate,
     db: Session = Depends(db_session),
     user: User = Depends(require_role(Role.STAFF)),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
 ) -> Invoice:
+    # Safe-selling-path guard (B3): this path records an invoice but does NOT move
+    # stock. A line that names a real product would sell stock without drawing it,
+    # so route stock sales through POST /invoices/sell instead.
+    if any(line.product_id is not None for line in payload.lines):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Lines that reference a product must be sold via /invoices/sell so stock "
+            "is drawn and traced. Use this endpoint only for non-stock lines.",
+        )
+
+    res = idempotency.reserve(db, idempotency_key, scope="create_invoice")
+    if res.replay is not None:
+        return res.replay
+    if res.in_progress:
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            "an identical invoice is already being created")
+
     computed_subtotal = round(sum(line.line_total for line in payload.lines), 2)
     total = round(computed_subtotal + payload.tax - payload.discount, 2)
 
@@ -281,9 +334,16 @@ def create_invoice(
             )
         )
     db.add(invoice)
-    db.flush()
-    _record_version(db, invoice, user.id, "created")
-    db.commit()
+    try:
+        db.flush()
+        _record_version(db, invoice, user.id, "created")
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"invoice number {payload.invoice_number!r} already exists",
+        ) from None
     db.refresh(invoice)
     audit.record(
         db,
@@ -293,6 +353,9 @@ def create_invoice(
         entity_id=invoice.id,
         new_value={"invoice_number": invoice.invoice_number, "total": str(total)},
         summary="; ".join(warnings) if warnings else "invoice created",
+    )
+    idempotency.complete(
+        db, idempotency_key, InvoiceOut.model_validate(invoice).model_dump(mode="json")
     )
     return invoice
 
@@ -326,9 +389,17 @@ def sell(
     payload: SellRequest,
     db: Session = Depends(db_session),
     user: User = Depends(require_role(Role.STAFF)),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
 ) -> dict:
     """Create an invoice and fulfil it from a warehouse's stock, decrementing lots
     (FIFO) and tagging each movement with the buyer."""
+    res = idempotency.reserve(db, idempotency_key, scope="sell")
+    if res.replay is not None:
+        return res.replay
+    if res.in_progress:
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            "an identical sale is already being processed")
+
     subtotal = round(sum(ln.quantity * ln.unit_price for ln in payload.lines), 2)
     total = round(subtotal + payload.tax + payload.shipping - payload.discount, 2)
 
@@ -350,7 +421,14 @@ def sell(
         created_by_user_id=user.id, version_no=1,
     )
     db.add(invoice)
-    db.flush()  # assign invoice.id for the stock movements
+    try:
+        db.flush()  # assign invoice.id for the stock movements; rejects duplicate number
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"invoice number {payload.invoice_number!r} already exists",
+        ) from None
 
     allocations: list[dict] = []
     try:
@@ -390,8 +468,10 @@ def sell(
         summary=f"sale invoice {invoice.invoice_number} fulfilled from warehouse "
                 f"{payload.warehouse_id}",
     )
-    return {
+    result = {
         "invoice": InvoiceOut.model_validate(invoice).model_dump(mode="json"),
         "allocations": allocations,
         "note": "Stock drawn FIFO from the warehouse; each unit traces to its lot and buyer.",
     }
+    idempotency.complete(db, idempotency_key, result)
+    return result

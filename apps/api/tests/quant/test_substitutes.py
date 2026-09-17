@@ -68,14 +68,16 @@ def _staff(db):
     return u
 
 
-def test_benfieg_substitute_tools(db):
+def test_benfieg_substitute_tools(db, monkeypatch):
+    from app.core.config import settings
+    monkeypatch.setattr(settings, "ASSISTANT_ALLOW_WRITES", True)  # allow the write tool
     _prod(db, "PISTON-CHINA")
     _prod(db, "PISTON-TURKEY", on_hand=8)
     user = _staff(db)
 
     added = execute_tool(db, "add_substitute", {
         "product": "PISTON-CHINA", "substitute": "PISTON-TURKEY", "note": "Turkey"},
-        user=user)
+        user=user, confirmed=True)  # confirm-gated write
     assert added["status"] == "OK"
 
     got = execute_tool(db, "get_substitutes", {"product": "PISTON-CHINA"})

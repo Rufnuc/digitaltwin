@@ -15,7 +15,6 @@ from sqlalchemy.orm import Session
 from app.core.enums import DataOrigin
 from app.models.customer import Customer
 from app.models.expense import Expense
-from app.models.inventory import Inventory
 from app.models.invoice import Invoice, InvoiceLine
 
 
@@ -117,11 +116,12 @@ def dashboard_summary(db: Session) -> dict:
     active_customers = int(
         _f(db.scalar(select(func.count(Customer.id)).where(Customer.status == "ACTIVE")))
     )
-    inventory_value = _f(
-        db.scalar(
-            select(func.coalesce(func.sum(Inventory.quantity_on_hand * Inventory.unit_cost), 0))
-        )
-    )
+    # Lot-authoritative inventory value: the lot ledger is the single source of
+    # truth (a sale decrements lots, not the legacy Inventory scalar), so value it
+    # from lots wherever they exist and fall back to Inventory only for products
+    # that predate the ledger.
+    from app.services import stock as _stock
+    inventory_value = _f(_stock.stock_value(db))
 
     # Is the current dataset entirely demo? (drives the DEMO DATA banner)
     real_invoices = int(

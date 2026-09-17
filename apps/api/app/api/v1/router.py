@@ -174,6 +174,9 @@ api_router.include_router(
         entity_type="inventory",
         tags=["inventory"],
         search_fields=(),
+        # Read-only: on-hand is owned by the lot ledger. Corrections go through the
+        # audited stock receive/adjust/transfer flows, never a direct quantity edit.
+        writable=False,
     ),
     prefix="/inventory",
 )

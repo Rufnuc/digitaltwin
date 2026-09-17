@@ -44,17 +44,34 @@ def record_payment(db: Session, *, invoice_id: int, amount: float, method: str =
                    note: str | None = None, user_id: int | None = None,
                    txid: str | None = None, from_account: str | None = None,
                    from_name: str | None = None, to_account: str | None = None,
-                   to_name: str | None = None) -> dict:
+                   to_name: str | None = None, idempotency_key: str | None = None) -> dict:
     """Record a customer payment against an invoice. Rejects non-positive amounts
-    and overpayment beyond the outstanding balance."""
-    inv = db.get(Invoice, invoice_id)
+    and overpayment beyond the outstanding balance.
+
+    The invoice row is locked for the balance check + status recompute so two
+    concurrent payments cannot both pass the overpayment guard. An idempotency key
+    makes a retried/double-tapped submit return the original result rather than
+    recording the payment twice.
+    """
+    from app.services import idempotency
+    res = idempotency.reserve(db, idempotency_key, scope="record_payment")
+    if res.replay is not None:
+        return res.replay
+    if res.in_progress:
+        return {"status": "ERROR", "error": "an identical payment is already being processed"}
+
+    # Lock the invoice row: the balance we validate against cannot shift under us.
+    inv = db.get(Invoice, invoice_id, with_for_update=True)
     if inv is None:
+        db.rollback()
         return {"status": "NOT_FOUND", "error": f"invoice {invoice_id} not found"}
     amount = round(float(amount), 2)
     if amount <= 0:
+        db.rollback()
         return {"status": "ERROR", "error": "amount must be positive"}
     outstanding = balance(inv)
     if amount > outstanding + _EPS:
+        db.rollback()
         return {"status": "ERROR",
                 "error": f"amount {amount} exceeds the outstanding balance {outstanding}",
                 "outstanding": outstanding}
@@ -69,14 +86,20 @@ def record_payment(db: Session, *, invoice_id: int, amount: float, method: str =
     db.add(pay)
     db.flush()
     _recalc(db, inv)
-    db.commit()
-    db.refresh(pay)
-    return {
+    result = {
         "status": "OK", "payment_id": pay.id, "invoice_id": inv.id,
         "amount": amount, "invoice_total": float(inv.total or 0),
         "amount_paid": float(inv.amount_paid), "balance": balance(inv),
         "payment_status": inv.payment_status,
     }
+    # complete() commits the payment, the status recompute and the idempotency row
+    # together; with no key it is a no-op so we commit here.
+    if idempotency_key:
+        idempotency.complete(db, idempotency_key, result)
+    else:
+        db.commit()
+    db.refresh(pay)
+    return result
 
 
 def void_payment(db: Session, payment_id: int) -> dict:

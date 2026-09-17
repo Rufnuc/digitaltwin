@@ -17,7 +17,9 @@ def test_origin_tracking_and_confirmed_arrival():
     """A Turkey-origin vessel later seen in Nigerian waters is a confirmed route."""
     s = ShippingStore()
     # First sighting: off Mersin, Turkey.
-    s.update_position({"MMSI": 555, "ShipName": "BOSPHORUS", "latitude": 36.8, "longitude": 34.6}, {})
+    s.update_position(
+        {"MMSI": 555, "ShipName": "BOSPHORUS", "latitude": 36.8, "longitude": 34.6}, {}
+    )
     v = s.vessels[555]
     assert v["origin_region"] == "Turkey / Mediterranean"
     assert v["arrived_nigeria"] is False

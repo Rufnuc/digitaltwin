@@ -6,7 +6,12 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import db_session, get_current_user, require_role
 from app.core.enums import AuditAction, Role
-from app.core.security import create_access_token, hash_password, verify_password
+from app.core.security import (
+    create_access_token,
+    hash_password,
+    role_rank,
+    verify_password,
+)
 from app.models.user import User
 from app.schemas.auth import LoginRequest, Token, UserCreate, UserOut, UserUpdate
 from app.services import audit
@@ -14,13 +19,58 @@ from app.services import audit
 router = APIRouter(tags=["auth"])
 
 
+def _active_owner_count(db: Session, exclude_id: int | None = None) -> int:
+    from sqlalchemy import func
+
+    stmt = select(func.count()).select_from(User).where(
+        User.role == Role.OWNER.value, User.is_active.is_(True)
+    )
+    if exclude_id is not None:
+        stmt = stmt.where(User.id != exclude_id)
+    return int(db.scalar(stmt) or 0)
+
+
 @router.post("/auth/login", response_model=Token)
 def login(payload: LoginRequest, db: Session = Depends(db_session)) -> Token:
+    from datetime import datetime, timedelta, timezone
+
+    from app.core.config import settings
+
+    now = datetime.now(timezone.utc)
     user = db.scalar(select(User).where(User.email == payload.email))
+
+    # Account lockout: while locked, refuse even a correct password (don't reset the
+    # timer). Unknown emails get the same generic 401 to avoid user enumeration.
+    if user is not None and user.lockout_until is not None:
+        locked_until = user.lockout_until
+        if locked_until.tzinfo is None:
+            locked_until = locked_until.replace(tzinfo=timezone.utc)
+        if locked_until > now:
+            raise HTTPException(
+                status.HTTP_429_TOO_MANY_REQUESTS,
+                "Too many failed attempts. Try again later.",
+            )
+
     if user is None or not verify_password(payload.password, user.hashed_password):
+        if user is not None:
+            # Count the failure and lock the account once the threshold is crossed.
+            user.failed_login_count = (user.failed_login_count or 0) + 1
+            if user.failed_login_count >= settings.LOGIN_MAX_ATTEMPTS:
+                user.lockout_until = now + timedelta(minutes=settings.LOGIN_LOCKOUT_MINUTES)
+                audit.record(db, action=AuditAction.LOGIN, user_id=user.id,
+                             summary=f"account locked after {user.failed_login_count} "
+                                     f"failed logins: {user.email}")
+            db.commit()
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Incorrect email or password")
+
     if not user.is_active:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "User is inactive")
+
+    # Success: clear any failure state.
+    if user.failed_login_count or user.lockout_until:
+        user.failed_login_count = 0
+        user.lockout_until = None
+        db.commit()
     audit.record(db, action=AuditAction.LOGIN, user_id=user.id, summary=f"login {user.email}")
     token = create_access_token(subject=str(user.id), role=user.role)
     return Token(access_token=token, role=user.role)
@@ -46,11 +96,19 @@ def refresh(user: User = Depends(get_current_user)) -> Token:
 def create_user(
     payload: UserCreate,
     db: Session = Depends(db_session),
-    _: User = Depends(require_role(Role.ADMIN)),
+    admin: User = Depends(require_role(Role.ADMIN)),
 ) -> User:
     if db.scalar(select(User).where(User.email == payload.email)):
         raise HTTPException(status.HTTP_409_CONFLICT, "Email already registered")
     Role(payload.role)  # validate role string
+    # Privilege-escalation guard: you cannot create a user more privileged than
+    # yourself, and only an OWNER may appoint another OWNER.
+    if role_rank(payload.role) > role_rank(admin.role):
+        raise HTTPException(status.HTTP_403_FORBIDDEN,
+                            "You cannot create a user with a role higher than your own")
+    if payload.role == Role.OWNER.value and admin.role != Role.OWNER.value:
+        raise HTTPException(status.HTTP_403_FORBIDDEN,
+                            "Only an OWNER can create another OWNER")
     user = User(
         email=payload.email,
         full_name=payload.full_name,
@@ -83,16 +141,49 @@ def update_user(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
     changes = payload.model_dump(exclude_unset=True)
     if "role" in changes and changes["role"] is not None:
-        Role(changes["role"])  # validate
-        user.role = changes["role"]
+        new_role = changes["role"]
+        Role(new_role)  # validate
+        # Privilege-escalation guards:
+        if user.id == admin.id:
+            raise HTTPException(status.HTTP_403_FORBIDDEN,
+                                "You cannot change your own role")
+        if role_rank(new_role) > role_rank(admin.role):
+            raise HTTPException(status.HTTP_403_FORBIDDEN,
+                                "You cannot grant a role higher than your own")
+        if new_role == Role.OWNER.value and admin.role != Role.OWNER.value:
+            raise HTTPException(status.HTTP_403_FORBIDDEN,
+                                "Only an OWNER can appoint another OWNER")
+        # Last-OWNER protection: don't demote the only remaining active owner.
+        if (user.role == Role.OWNER.value and new_role != Role.OWNER.value
+                and _active_owner_count(db, exclude_id=user.id) == 0):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                                "Cannot remove the last remaining OWNER")
+        user.role = new_role
     if "full_name" in changes and changes["full_name"] is not None:
         user.full_name = changes["full_name"]
     if "is_active" in changes and changes["is_active"] is not None:
         # Don't let an admin lock themselves out.
         if user.id == admin.id and changes["is_active"] is False:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "You cannot deactivate yourself")
+        # Can't deactivate a user more privileged than yourself.
+        if (changes["is_active"] is False and user.id != admin.id
+                and role_rank(user.role) > role_rank(admin.role)):
+            raise HTTPException(status.HTTP_403_FORBIDDEN,
+                                "You cannot deactivate a user more privileged than yourself")
+        # Last-OWNER protection: don't deactivate the only remaining active owner.
+        if (changes["is_active"] is False and user.role == Role.OWNER.value
+                and _active_owner_count(db, exclude_id=user.id) == 0):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                                "Cannot deactivate the last remaining OWNER")
         user.is_active = changes["is_active"]
     if changes.get("password"):
+        # Password-reset guard: you may reset your own password, but not that of a
+        # user at an equal-or-higher privilege level (that would be account takeover).
+        if user.id != admin.id and role_rank(user.role) >= role_rank(admin.role):
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                "You cannot reset the password of a user at your level or higher",
+            )
         user.hashed_password = hash_password(changes["password"])
     db.commit()
     db.refresh(user)

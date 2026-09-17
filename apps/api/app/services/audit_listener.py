@@ -32,9 +32,11 @@ SOURCE_KEY = "audit_source"
 # machine-generated feeds that would drown the trail.
 EXCLUDED_TABLES = {
     "audit_logs", "vessel_tracks", "notifications", "economic_data", "market_events",
+    "idempotency_keys",
 }
-# Columns never worth diffing (they change on every write).
-_IGNORED_COLS = {"created_at", "updated_at"}
+# Columns never worth diffing (they change on every write) or never safe to store:
+# secrets must never land in the audit trail's old/new payloads.
+_IGNORED_COLS = {"created_at", "updated_at", "hashed_password"}
 
 
 def _jsonable(value):

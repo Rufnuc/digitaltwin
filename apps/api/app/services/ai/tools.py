@@ -17,6 +17,7 @@ from datetime import date
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.enums import AuditAction, DataOrigin, Role
 from app.core.security import role_at_least
 from app.models.customer import Customer
@@ -349,14 +350,17 @@ def _set_inventory(db: Session, product: str, quantity: float | None = None,
     p = _find_product(db, product)
     if not p:
         return {"error": f"product '{product}' not found"}
+    # On-hand quantity is owned by the lot ledger (receive/adjust/transfer), which
+    # writes an audited stock movement. A direct quantity set here would bypass that
+    # trail and diverge from the real stock, so it is refused.
+    if quantity is not None:
+        return {"error": "on-hand quantity is set by the stock ledger — receive or "
+                         "adjust stock instead of setting inventory directly"}
     inv = db.scalar(select(Inventory).where(Inventory.product_id == p.id))
     if inv is None:
         inv = Inventory(product_id=p.id, quantity_on_hand=0, data_origin=DataOrigin.REAL.value)
         db.add(inv)
     changed: dict = {}
-    if quantity is not None:
-        inv.quantity_on_hand = int(quantity)
-        changed["quantity_on_hand"] = int(quantity)
     if unit_cost is not None:
         inv.unit_cost = unit_cost
         changed["unit_cost"] = unit_cost
@@ -1386,23 +1390,57 @@ def _audit_action(name: str) -> AuditAction:
     return AuditAction.RUN_SIMULATION
 
 
-def execute_tool(db: Session, name: str, args: dict, user=None) -> dict:
+def execute_tool(db: Session, name: str, args: dict, user=None, confirmed: bool = False) -> dict:
+    """Run a tool. Mutating tools are TWO-step: the first call (confirmed=False)
+    returns a signed proposal and writes nothing; execution happens only when the
+    confirm endpoint calls again with confirmed=True. The kill switch and role checks
+    apply at both steps."""
     tool = TOOLS_BY_NAME.get(name)
     if tool is None:
         return {"error": f"unknown tool '{name}'"}
-    if tool.mutating:
+
+    # Permission is enforced server-side for EVERY tool, not only mutating ones — a
+    # role-restricted read (payables, tax, cash flow) must not leak through chat.
+    if tool.min_role != Role.VIEWER.value or tool.mutating:
         if user is None:
             return {"error": "this action requires an authenticated user"}
         if not role_at_least(user.role, tool.min_role):
             return {"error": f"'{name}' requires role {tool.min_role} or higher "
                              f"(you are {user.role})"}
+
+    # Kill switch / read-only mode: mutating tools are disabled unless writes are
+    # explicitly enabled — this overrides confirmation and is the default posture.
+    if tool.mutating and not settings.ASSISTANT_ALLOW_WRITES:
+        return {"error": "the assistant is in read-only mode; this change must be made "
+                         "in the app by a person. (Ask an owner to enable assistant "
+                         "writes once confirmation controls are in place.)"}
+
+    # Confirm-gating: a mutating tool proposes on first sight and never writes until a
+    # matching confirmation token is presented to the confirm endpoint.
+    if tool.mutating and not confirmed:
+        from app.services.ai import confirm
+        token = confirm.make_token(name, args or {}, user.id if user else None)
+        if user is not None:
+            audit.record(db, action=_audit_action(name), user_id=user.id,
+                         entity_type=f"assistant:{name}",
+                         new_value={"proposed": True, "args": args or {}},
+                         source="ai_assistant", summary=f"PROPOSED {name} {str(args)[:200]}")
+        return {"status": "PROPOSED", "action": name, "args": args or {},
+                "confirmation_token": token,
+                "message": f"Ready to {name.replace('_', ' ')}. Confirm to apply this change."}
+
     try:
         result = tool.handler(db, **(args or {}))
     except TypeError as e:
         return {"error": f"bad arguments for {name}: {e}"}
     if tool.mutating and user is not None and "error" not in result:
+        # Structured audit for a CONFIRMED AI write: actor, entity, change, source.
+        change = result if isinstance(result, dict) else {"result": str(result)}
         audit.record(db, action=_audit_action(name), user_id=user.id,
-                     entity_type=f"assistant:{name}", summary=str(result)[:400])
+                     entity_type=f"assistant:{name}",
+                     entity_id=result.get("id") if isinstance(result, dict) else None,
+                     new_value={"confirmed": True, **change},
+                     source="ai_assistant", summary=f"CONFIRMED {name}: {str(result)[:300]}")
     return result
 
 

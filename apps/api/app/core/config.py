@@ -41,6 +41,15 @@ class Settings(BaseSettings):
     AI_MODEL: str = "claude-opus-5"
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "qwen2.5:7b"
+    # Assistant safety: writes are OFF by default (read-only). The assistant may only
+    # perform mutating tools when this is explicitly enabled AND confirm-gating is in
+    # place. Setting it back to False is the kill switch that stops all AI writes.
+    ASSISTANT_ALLOW_WRITES: bool = False
+
+    # Login brute-force protection: lock an account for LOGIN_LOCKOUT_MINUTES after
+    # LOGIN_MAX_ATTEMPTS consecutive failures; a success resets the counter.
+    LOGIN_MAX_ATTEMPTS: int = 5
+    LOGIN_LOCKOUT_MINUTES: int = 15
 
     # Voice input (Whisper, local & offline). The mic records 16 kHz mono WAV in
     # the browser; the backend decodes it with the stdlib and transcribes with a

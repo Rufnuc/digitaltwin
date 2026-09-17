@@ -113,6 +113,8 @@ def test_activity_log_tool(db):
     c = Customer(code="TOOLA", name="Tool Audit")
     db.add(c)
     db.commit()
-    r = execute_tool(db, "get_activity_log", {"entity_type": "customers", "limit": 10})
+    svc = type("U", (), {"role": "OWNER", "id": 1})()  # authorized assistant user
+    r = execute_tool(db, "get_activity_log", {"entity_type": "customers", "limit": 10},
+                     user=svc)
     assert r["total_matching"] >= 1
     assert any("customers" in e["entity"] for e in r["events"])

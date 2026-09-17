@@ -47,12 +47,20 @@ def _startup() -> None:
         collector.start()
         logger.info("Shipping monitor started (aisstream).")
 
+    # Periodic housekeeping (sweeps stranded idempotency reservations).
+    from app.services import maintenance
+    maintenance.start()
+    logger.info("Maintenance loop started.")
+
 
 @app.on_event("shutdown")
 async def _shutdown() -> None:
     if settings.AISSTREAM_API_KEY:
         from app.services.shipping import collector
         await collector.stop()
+
+    from app.services import maintenance
+    await maintenance.stop()
 
 
 @app.get("/health", tags=["meta"])

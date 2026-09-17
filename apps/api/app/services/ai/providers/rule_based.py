@@ -25,6 +25,13 @@ _PRICE_RE = re.compile(
 _DOWN = ("lower", "reduc", "cut", "drop", "decreas")
 
 
+class _ProposalPending(Exception):
+    """Raised inside the provider when a confirm-gated tool returns a proposal."""
+
+    def __init__(self, res: dict):
+        self.res = res
+
+
 def _money(v) -> str:
     try:
         return f"₦{float(v):,.0f}"
@@ -51,13 +58,20 @@ class RuleBasedProvider:
         def call(name: str, args: dict | None = None) -> dict:
             res = execute(name, args or {})
             calls.append(ToolCall(name=name, args=args or {}, result=res))
+            # A confirm-gated mutating tool proposes instead of executing; stop here
+            # and relay the proposal rather than formatting a write that didn't happen.
+            if isinstance(res, dict) and res.get("status") == "PROPOSED":
+                raise _ProposalPending(res)
             return res
 
         def done(answer: str) -> AssistantResult:
             return AssistantResult(answer=answer, tool_calls=calls, provider=self.name)
 
         # --- ACTIONS (explicit command verbs; take priority over questions) ---
-        action = self._try_action(question, q, call)
+        try:
+            action = self._try_action(question, q, call)
+        except _ProposalPending as pending:
+            return done(pending.res.get("message", "Please confirm this change to proceed."))
         if action is not None:
             return done(action)
 

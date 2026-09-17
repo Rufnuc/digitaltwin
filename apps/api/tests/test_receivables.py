@@ -102,7 +102,8 @@ def test_receivables_api_and_tool(client, auth_headers, db):
 
     # Benfieg tools
     from app.services.ai.tools import execute_tool
-    rec = execute_tool(db, "get_receivables", {})
+    svc = type("U", (), {"role": "OWNER", "id": 1})()  # authorized assistant user
+    rec = execute_tool(db, "get_receivables", {}, user=svc)
     assert rec["total_outstanding"] >= 750.0
-    bal = execute_tool(db, "get_customer_balance", {"customer": "Api Receivable"})
+    bal = execute_tool(db, "get_customer_balance", {"customer": "Api Receivable"}, user=svc)
     assert bal["outstanding"] == 750.0

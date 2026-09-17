@@ -57,7 +57,8 @@ def test_tax_api_and_tool(client, auth_headers, db):
     assert resp.json()["vat"]["output_vat"] >= 75.0
 
     from app.services.ai.tools import execute_tool
-    t = execute_tool(db, "get_tax_estimate", {})
+    svc = type("U", (), {"role": "OWNER", "id": 1})()  # authorized assistant user
+    t = execute_tool(db, "get_tax_estimate", {}, user=svc)
     assert "total_estimated_tax" in t and "disclaimer" in t
 
     # A plain staff member cannot see the tax estimate.

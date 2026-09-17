@@ -114,14 +114,23 @@ def receive_batch(
     return lots
 
 
-def _open_lots(db: Session, product_id: int, warehouse_id: int) -> list[StockLot]:
-    """IN_STOCK lots for a product in a warehouse, oldest first (FIFO)."""
-    return list(db.scalars(
+def _open_lots(db: Session, product_id: int, warehouse_id: int,
+               lock: bool = False) -> list[StockLot]:
+    """IN_STOCK lots for a product in a warehouse, oldest first (FIFO).
+
+    When ``lock`` is set (any stock-consuming write), the candidate rows are locked
+    ``FOR UPDATE`` so two concurrent sales/transfers cannot both draw the same units
+    and oversell. (On SQLite, which has no row locks, writes are already serialized.)
+    """
+    stmt = (
         select(StockLot)
         .where(StockLot.product_id == product_id, StockLot.warehouse_id == warehouse_id,
                StockLot.quantity_remaining > 0)
         .order_by(StockLot.received_date.asc(), StockLot.id.asc())
-    ).all())
+    )
+    if lock:
+        stmt = stmt.with_for_update()
+    return list(db.scalars(stmt).all())
 
 
 def on_hand(db: Session, product_id: int, warehouse_id: int) -> int:
@@ -133,8 +142,11 @@ def on_hand(db: Session, product_id: int, warehouse_id: int) -> int:
 
 def _draw_fifo(db: Session, product_id: int, warehouse_id: int, quantity: int,
                mtype: str, **links) -> list[dict]:
-    """Consume `quantity` from the oldest lots, recording a movement per lot."""
-    lots = _open_lots(db, product_id, warehouse_id)
+    """Consume `quantity` from the oldest lots, recording a movement per lot.
+
+    Locks the candidate lots so the availability check and the decrement are atomic
+    against other concurrent draws (no oversell)."""
+    lots = _open_lots(db, product_id, warehouse_id, lock=True)
     available = sum(lot.quantity_remaining for lot in lots)
     if quantity > available:
         raise StockError(
@@ -185,7 +197,7 @@ def transfer_stock(
     if quantity <= 0:
         raise StockError("transfer quantity must be positive")
     _require(db, Warehouse, to_warehouse_id, "warehouse")
-    src_lots = _open_lots(db, product_id, from_warehouse_id)
+    src_lots = _open_lots(db, product_id, from_warehouse_id, lock=True)
     available = sum(lot.quantity_remaining for lot in src_lots)
     if quantity > available:
         raise StockError(
@@ -359,6 +371,46 @@ def lot_detail(db: Session, lot_id: int) -> dict | None:
         "invoices": sorted({m.invoice_id for m in moves if m.invoice_id}),
         "vessel": _vessel_snapshot(lot.vessel_mmsi),
     }
+
+
+def on_hand_totals(db: Session) -> dict[int, int]:
+    """Authoritative on-hand per product: lot ledger when the product has lots, else
+    the legacy Inventory scalar (products predating the lot ledger). One source of
+    truth — the lot ledger wins wherever it exists."""
+    from app.models.inventory import Inventory
+
+    lot_rows = db.execute(
+        select(StockLot.product_id, func.sum(StockLot.quantity_remaining))
+        .where(StockLot.quantity_remaining > 0)
+        .group_by(StockLot.product_id)
+    ).all()
+    totals = {pid: int(qty or 0) for pid, qty in lot_rows}
+    lot_products = set(totals)
+    legacy = db.execute(
+        select(Inventory.product_id, func.sum(Inventory.quantity_on_hand))
+        .group_by(Inventory.product_id)
+    ).all()
+    for pid, qty in legacy:
+        if pid not in lot_products:  # only where the ledger has nothing to say
+            totals[pid] = int(qty or 0)
+    return totals
+
+
+def stock_value(db: Session) -> float:
+    """Total inventory value (units × unit cost), lot-authoritative: value from lots
+    where they exist, legacy Inventory only for products with no lots."""
+    from app.models.inventory import Inventory
+
+    lot_val = float(db.scalar(
+        select(func.coalesce(func.sum(StockLot.quantity_remaining * StockLot.unit_cost), 0))
+        .where(StockLot.quantity_remaining > 0)
+    ) or 0.0)
+    lot_products = select(StockLot.product_id).where(StockLot.quantity_remaining > 0).distinct()
+    legacy_val = float(db.scalar(
+        select(func.coalesce(func.sum(Inventory.quantity_on_hand * Inventory.unit_cost), 0))
+        .where(Inventory.product_id.notin_(lot_products))
+    ) or 0.0)
+    return round(lot_val + legacy_val, 2)
 
 
 def on_hand_by_warehouse(db: Session, product_id: int) -> list[dict]:

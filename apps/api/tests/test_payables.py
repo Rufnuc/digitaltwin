@@ -77,5 +77,6 @@ def test_payables_and_cashflow_api(client, auth_headers, db):
 
     db.expire_all()
     from app.services.ai.tools import execute_tool
-    assert execute_tool(db, "get_payables", {})["total_payable"] >= 600.0
-    assert "net_position" in execute_tool(db, "get_cash_flow", {})
+    svc = type("U", (), {"role": "OWNER", "id": 1})()  # authorized assistant user
+    assert execute_tool(db, "get_payables", {}, user=svc)["total_payable"] >= 600.0
+    assert "net_position" in execute_tool(db, "get_cash_flow", {}, user=svc)

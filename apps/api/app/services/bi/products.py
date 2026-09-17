@@ -4,7 +4,6 @@ from __future__ import annotations
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models.inventory import Inventory
 from app.models.invoice import InvoiceLine
 from app.models.product import Product
 
@@ -49,14 +48,10 @@ def product_intelligence(db: Session, top_n: int = 10) -> dict:
     sold = [m for m in metrics if m["units"] > 0]
 
     # Dead stock: on-hand quantity but no sales in the dataset (spec §25).
-    on_hand = {
-        pid: qty
-        for pid, qty in db.execute(
-            select(Inventory.product_id, func.sum(Inventory.quantity_on_hand)).group_by(
-                Inventory.product_id
-            )
-        ).all()
-    }
+    # Lot-authoritative on-hand (lot ledger where it exists, legacy Inventory only
+    # for products without lots) so dead-stock matches what a sale actually moves.
+    from app.services import stock as _stock
+    on_hand = _stock.on_hand_totals(db)
     dead_stock = [
         {**m, "on_hand": int(on_hand.get(m["product_id"], 0) or 0)}
         for m in metrics

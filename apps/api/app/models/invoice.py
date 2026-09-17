@@ -13,7 +13,12 @@ class Invoice(Base, TimestampMixin, ProvenanceMixin):
     __tablename__ = "invoices"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    invoice_number: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    # Unique at the DB level: an invoice number is the business key for a sale, so a
+    # duplicate (double-submit, retry, or two staff reusing a number) must be rejected
+    # by the database, not just the UI.
+    invoice_number: Mapped[str] = mapped_column(
+        String(64), unique=True, index=True, nullable=False
+    )
     invoice_date: Mapped[date] = mapped_column(Date, index=True, nullable=False)
     customer_id: Mapped[int | None] = mapped_column(
         ForeignKey("customers.id"), index=True, nullable=True

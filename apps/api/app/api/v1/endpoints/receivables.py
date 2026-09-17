@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -34,6 +34,7 @@ def record_payment(
     payload: PaymentIn,
     db: Session = Depends(db_session),
     user: User = Depends(require_role(Role.STAFF)),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
 ) -> dict:
     """Record a payment a customer made against an invoice."""
     r = receivables.record_payment(
@@ -41,7 +42,7 @@ def record_payment(
         paid_at=payload.paid_at, reference=payload.reference, note=payload.note,
         user_id=user.id, txid=payload.txid, from_account=payload.from_account,
         from_name=payload.from_name, to_account=payload.to_account,
-        to_name=payload.to_name,
+        to_name=payload.to_name, idempotency_key=idempotency_key,
     )
     if r["status"] == "NOT_FOUND":
         raise HTTPException(status.HTTP_404_NOT_FOUND, r["error"])

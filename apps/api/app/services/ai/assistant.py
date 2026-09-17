@@ -130,10 +130,31 @@ def ask(db: Session, question: str, user=None) -> dict:
         }
         for c in result.tool_calls
     ]
+    def _executed(r) -> bool:
+        # A proposal (PROPOSED) is not an executed action, and errors don't count.
+        return not (isinstance(r, dict) and ("error" in r or r.get("status") == "PROPOSED"))
+
     actions_taken = [
-        c["name"] for c in tool_trace
-        if c["mutating"] and not (isinstance(c["result"], dict) and "error" in c["result"])
+        c["name"] for c in tool_trace if c["mutating"] and _executed(c["result"])
     ]
+    # Surface any pending proposals so the caller can confirm them.
+    proposals = [
+        {"action": c["name"], "confirmation_token": c["result"].get("confirmation_token"),
+         "args": c["result"].get("args"), "message": c["result"].get("message")}
+        for c in tool_trace
+        if isinstance(c["result"], dict) and c["result"].get("status") == "PROPOSED"
+    ]
+
+    # Numeric provenance: verify every business-critical figure in the answer against
+    # the tool results. Unverified figures are flagged in the answer and logged, so a
+    # fabricated or miscopied number is never presented as fact.
+    from app.services.ai import provenance
+    unverified = provenance.verify_answer(result.answer, tool_trace)
+    if unverified:
+        result.answer += (
+            "\n\n[Note: the figure(s) " + ", ".join(unverified) + " could not be "
+            "verified against the business data and may be unreliable.]"
+        )
 
     audit.record(
         db,
@@ -141,7 +162,8 @@ def ask(db: Session, question: str, user=None) -> dict:
         user_id=user.id if user else None,
         entity_type="assistant",
         summary=f"[{result.provider}] {question[:200]}",
-        new_value={"tools": [c["name"] for c in tool_trace], "actions": actions_taken},
+        new_value={"tools": [c["name"] for c in tool_trace], "actions": actions_taken,
+                   "unverified_numbers": unverified},
     )
 
     return {
@@ -154,6 +176,8 @@ def ask(db: Session, question: str, user=None) -> dict:
         "provenance": DataOrigin.AI_INTERPRETATION.value,
         "tool_calls": tool_trace,
         "actions_taken": actions_taken,
+        "proposals": proposals,
+        "unverified_numbers": unverified,
         "disclaimer": "Figures come from the business data and simulation engines; "
                       "the explanation is AI-generated. Simulations rely on stated assumptions.",
     }

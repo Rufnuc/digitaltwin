@@ -27,6 +27,10 @@ class RenameChat(BaseModel):
     title: str = Field(min_length=1, max_length=255)
 
 
+class AssistantConfirm(BaseModel):
+    confirmation_token: str = Field(min_length=1, max_length=4096)
+
+
 @router.get("/assistant/tools")
 def tools(_: User = Depends(get_current_user)) -> dict:
     """The tools the assistant can call — the only source of numbers in answers."""
@@ -50,6 +54,28 @@ def assistant_ask(
     result["conversation_id"] = convo.id
     result["conversation_title"] = convo.title
     return result
+
+
+@router.post("/assistant/confirm")
+def assistant_confirm(
+    payload: AssistantConfirm,
+    db: Session = Depends(db_session),
+    user: User = Depends(get_current_user),
+) -> dict:
+    """Execute a previously PROPOSED assistant write. The token fixes exactly what
+    runs; the kill switch and role checks are re-applied at execution."""
+    from app.services.ai import confirm as confirm_mod
+    from app.services.ai.tools import execute_tool
+
+    data = confirm_mod.verify_token(payload.confirmation_token)
+    if data is None:
+        raise HTTPException(status_code=400, detail="Invalid or expired confirmation.")
+    if data.get("user_id") is not None and data["user_id"] != user.id:
+        raise HTTPException(status_code=403, detail="This confirmation belongs to another user.")
+    result = execute_tool(db, data["name"], data["args"], user=user, confirmed=True)
+    if isinstance(result, dict) and "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return {"executed": data["name"], "result": result}
 
 
 @router.get("/assistant/conversations")

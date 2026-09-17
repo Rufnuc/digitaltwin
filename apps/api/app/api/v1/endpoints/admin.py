@@ -17,11 +17,13 @@ from app.models.events import EconomicData, MarketEvent
 from app.models.expense import Expense
 from app.models.inventory import Inventory
 from app.models.invoice import Invoice, InvoiceLine
+from app.models.payment import Payment
 from app.models.product import Product, ProductPriceHistory
-from app.models.purchase import Purchase, PurchaseLine
+from app.models.purchase import Purchase, PurchaseLine, SupplierPayment
 from app.models.supplier import Supplier
 from app.models.system import Alert
 from app.models.user import User
+from app.models.warehouse import StockLot, StockMovement
 from app.services import audit
 
 router = APIRouter(tags=["admin"])
@@ -74,6 +76,35 @@ def purge_demo(
         res = db.execute(delete(model).where(cond))
         deleted[model.__tablename__] = deleted.get(model.__tablename__, 0) + (res.rowcount or 0)
 
+    # Demo parent id sets, used to remove rows that only *reference* demo data (and so
+    # carry no provenance tag of their own) — otherwise deleting the parents would
+    # orphan them or violate foreign keys.
+    demo_products = select(Product.id).where(Product.data_origin == demo)
+    demo_invoices = select(Invoice.id).where(Invoice.data_origin == demo)
+    demo_customers = select(Customer.id).where(Customer.data_origin == demo)
+    demo_suppliers = select(Supplier.id).where(Supplier.data_origin == demo)
+    demo_purchases = select(Purchase.id).where(Purchase.data_origin == demo)
+
+    # Everything runs in one transaction (a single commit below) so the purge is
+    # atomic — all demo data goes or none does.
+    # Stock ledger first (movements reference lots).
+    purge(StockMovement,
+          StockMovement.product_id.in_(demo_products)
+          | StockMovement.invoice_id.in_(demo_invoices)
+          | StockMovement.customer_id.in_(demo_customers))
+    purge(StockLot,
+          (StockLot.data_origin == demo)
+          | StockLot.product_id.in_(demo_products)
+          | StockLot.supplier_id.in_(demo_suppliers))
+    # Money rows that point at demo invoices/customers/suppliers/purchases.
+    purge(Payment,
+          (Payment.data_origin == demo)
+          | Payment.invoice_id.in_(demo_invoices)
+          | Payment.customer_id.in_(demo_customers))
+    purge(SupplierPayment,
+          (SupplierPayment.data_origin == demo)
+          | SupplierPayment.supplier_id.in_(demo_suppliers)
+          | SupplierPayment.purchase_id.in_(demo_purchases))
     # Children before parents.
     purge(InvoiceLine, InvoiceLine.data_origin == demo)
     purge(Invoice, Invoice.data_origin == demo)
@@ -82,9 +113,7 @@ def purge_demo(
     purge(Inventory, Inventory.data_origin == demo)
     # price history has no provenance tag — remove rows for demo products.
     db.execute(delete(ProductPriceHistory).where(
-        ProductPriceHistory.product_id.in_(
-            select(Product.id).where(Product.data_origin == demo)
-        )
+        ProductPriceHistory.product_id.in_(demo_products)
     ))
     purge(Expense, Expense.data_origin == demo)
     purge(Customer, Customer.data_origin == demo)
@@ -93,6 +122,9 @@ def purge_demo(
     purge(MarketEvent, MarketEvent.data_origin == demo)
     purge(EconomicData, EconomicData.data_origin == demo)
     purge(Alert, Alert.data_origin == demo)
+    # NOTE: SimulationRun has no product/invoice foreign key and no provenance tag, so
+    # no simulation row is ever orphaned by this purge; deleting runs would destroy the
+    # operator's real analysis history, so they are intentionally left untouched.
     db.commit()
 
     total = sum(deleted.values())

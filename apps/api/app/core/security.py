@@ -45,3 +45,8 @@ def role_at_least(actual: Role | str, required: Role | str) -> bool:
     actual = Role(actual)
     required = Role(required)
     return ROLE_ORDER.index(actual) >= ROLE_ORDER.index(required)
+
+
+def role_rank(role: Role | str) -> int:
+    """Position in the privilege hierarchy (higher = more privileged)."""
+    return ROLE_ORDER.index(Role(role))
