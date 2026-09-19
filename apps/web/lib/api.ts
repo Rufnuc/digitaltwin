@@ -200,6 +200,11 @@ export const api = {
     request<{ items: ProductImage[] }>(`/products/${id}/images`),
   productHistory: (id: number) => request<ProductHistory>(`/products/${id}/history`),
   supplierTrace: (id: number) => request<SupplierTrace>(`/suppliers/${id}/trace`),
+  recordSupplierPayment: (purchaseId: number, body: unknown) =>
+    request<Record<string, unknown>>(`/payables/purchases/${purchaseId}/payments`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   addProductImageUrl: (id: number, url: string) =>
     request<ProductImage>(`/products/${id}/image-url`, { method: "POST", body: JSON.stringify({ url }) }),
   setPrimaryImage: (id: number, imageId: number) =>
@@ -819,10 +824,29 @@ export interface SupplierTracePayment {
   paid_at: string;
   reference: string | null;
   txid: string | null;
+  purchase_id: number | null;
   from_account: string | null;
   from_name: string | null;
   to_account: string | null;
   to_name: string | null;
+}
+export interface SupplierStatementRow {
+  id: number;
+  reference: string;
+  purchase_date: string | null;
+  status: string;
+  total: number;
+  amount_paid: number;
+  balance: number;
+  payment_status: string;
+}
+export interface SupplierSlowMover {
+  product_id: number;
+  product_code: string | null;
+  product_name: string | null;
+  received: number;
+  sold: number;
+  on_hand: number;
 }
 export interface SupplierTrace {
   status: string;
@@ -837,7 +861,10 @@ export interface SupplierTrace {
   warehouses: string[];
   shipments: SupplierTraceShipment[];
   we_owe: number;
+  total_paid: number;
+  statement: SupplierStatementRow[];
   payments: SupplierTracePayment[];
+  slow_movers: SupplierSlowMover[];
   provenance: string;
 }
 

@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from app.models.product import Product
 from app.models.purchase import Purchase, SupplierPayment
 from app.models.supplier import Supplier
-from app.models.warehouse import StockLot, Warehouse
+from app.models.warehouse import MovementType, StockLot, StockMovement, Warehouse
 
 
 def product_suppliers(db: Session, product_id: int) -> list[dict]:
@@ -90,6 +90,16 @@ def supplier_detail(db: Session, supplier_id: int) -> dict:
         .order_by(Purchase.purchase_date.desc())
     ).all()
     owed = round(sum(payables.balance(p) for p in purchases if p.payment_status != "PAID"), 2)
+    total_paid = round(sum(float(p.amount_paid or 0) for p in purchases), 2)
+    # Statement: every purchase with what it cost, what's paid, and the balance.
+    statement = [
+        {"id": p.id, "reference": p.reference,
+         "purchase_date": p.purchase_date.isoformat() if p.purchase_date else None,
+         "status": p.status, "total": float(p.total or 0),
+         "amount_paid": float(p.amount_paid or 0), "balance": payables.balance(p),
+         "payment_status": p.payment_status}
+        for p in purchases
+    ]
     pay_rows = db.scalars(
         select(SupplierPayment).where(SupplierPayment.supplier_id == supplier_id,
                                       SupplierPayment.status == "CONFIRMED")
@@ -97,7 +107,7 @@ def supplier_detail(db: Session, supplier_id: int) -> dict:
     ).all()
     payments = [
         {"amount": float(p.amount), "method": p.method, "paid_at": p.paid_at.isoformat(),
-         "reference": p.reference, "txid": p.txid,
+         "reference": p.reference, "txid": p.txid, "purchase_id": p.purchase_id,
          "from_account": p.from_account, "from_name": p.from_name,
          "to_account": p.to_account, "to_name": p.to_name}
         for p in pay_rows
@@ -112,6 +122,40 @@ def supplier_detail(db: Session, supplier_id: int) -> dict:
         "warehouses": warehouses,
         "shipments": shipments,
         "we_owe": owed,
+        "total_paid": total_paid,
+        "statement": statement,
         "payments": payments,
+        "slow_movers": _slow_movers(db, [p["product_id"] for p in products if p["product_id"]]),
         "provenance": "REAL",
     }
+
+
+def _slow_movers(db: Session, product_ids: list[int]) -> list[dict]:
+    """For products this supplier supplied: how many we received, sold, and still hold —
+    so barely-sold lines (money tied up on the shelf) stand out."""
+    if not product_ids:
+        return []
+    received = dict(db.execute(
+        select(StockLot.product_id, func.coalesce(func.sum(StockLot.quantity_received), 0))
+        .where(StockLot.product_id.in_(product_ids)).group_by(StockLot.product_id)).all())
+    on_hand = dict(db.execute(
+        select(StockLot.product_id, func.coalesce(func.sum(StockLot.quantity_remaining), 0))
+        .where(StockLot.product_id.in_(product_ids)).group_by(StockLot.product_id)).all())
+    # Units sold = SALE movements in the lot ledger (quantities are signed -out).
+    sold = dict(db.execute(
+        select(StockMovement.product_id, func.coalesce(func.sum(-StockMovement.quantity), 0))
+        .where(StockMovement.product_id.in_(product_ids),
+               StockMovement.movement_type == MovementType.SALE)
+        .group_by(StockMovement.product_id)).all())
+    names = {pid: (code, name) for pid, code, name in db.execute(
+        select(Product.id, Product.code, Product.name).where(Product.id.in_(product_ids))).all()}
+    rows = []
+    for pid in product_ids:
+        code, name = names.get(pid, (None, None))
+        rows.append({"product_id": pid, "product_code": code, "product_name": name,
+                     "received": int(received.get(pid, 0) or 0),
+                     "sold": int(sold.get(pid, 0) or 0),
+                     "on_hand": int(on_hand.get(pid, 0) or 0)})
+    # Worst sellers first: least sold, most still on hand.
+    rows.sort(key=lambda r: (r["sold"], -r["on_hand"]))
+    return rows
