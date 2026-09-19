@@ -37,6 +37,7 @@ const NAV: NavSection[] = [
     items: [
       { href: "/products", label: "Products" },
       { href: "/suppliers", label: "Suppliers" },
+      { href: "/procurement", label: "Procurement", minRole: "STAFF" },
       // One entry for the whole inventory area — stock, warehouses and levels
       // share a tab strip once inside.
       { href: "/stock", label: "Inventory", minRole: "STAFF" },

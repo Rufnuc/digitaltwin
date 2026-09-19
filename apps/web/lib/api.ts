@@ -173,6 +173,24 @@ export const api = {
     request<Waybill>("/waybills", { method: "POST", body: JSON.stringify(body) }),
   updateWaybill: (id: number, body: unknown) =>
     request<Waybill>(`/waybills/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  // ---- Procurement (supplier requests → orders → receiving) ----
+  listPurchases: (params = "") =>
+    request<{ items: Purchase[]; total: number; limit: number; offset: number }>(
+      `/purchases${params}`,
+    ),
+  getPurchase: (id: number) => request<Purchase>(`/purchases/${id}`),
+  createRequest: (body: unknown) =>
+    request<Purchase>("/purchases", { method: "POST", body: JSON.stringify(body) }),
+  setPurchaseStatus: (id: number, status: string) =>
+    request<Purchase>(`/purchases/${id}/status`, {
+      method: "PATCH",
+      body: JSON.stringify({ status }),
+    }),
+  receivePurchase: (id: number, body: unknown) =>
+    request<Purchase>(`/purchases/${id}/receive`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   invoiceDetail: (id: number) => request<InvoiceDetail>(`/invoices/${id}`),
   invoiceVersions: (id: number) =>
     request<{ items: InvoiceVersionRow[] }>(`/invoices/${id}/versions`),
@@ -1058,6 +1076,32 @@ export interface AssistantToolCall {
   provenance: string;
   result: Record<string, unknown>;
 }
+export interface PurchaseLine {
+  product_id: number | null;
+  product_code: string | null;
+  product_name: string | null;
+  description: string | null;
+  quantity: number;
+  unit_cost: number;
+  line_total: number;
+}
+export interface Purchase {
+  id: number;
+  reference: string;
+  status: string; // REQUEST | ORDERED | RECEIVED | CANCELLED
+  purchase_date: string | null;
+  supplier_id: number | null;
+  supplier_name: string | null;
+  currency: string;
+  subtotal: number;
+  transport_cost: number;
+  total: number;
+  amount_paid: number;
+  payment_status: string;
+  line_count: number;
+  lines?: PurchaseLine[];
+}
+
 export interface Waybill {
   id: number;
   waybill_number: string;

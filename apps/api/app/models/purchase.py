@@ -21,7 +21,12 @@ class Purchase(Base, TimestampMixin, ProvenanceMixin):
     currency: Mapped[str] = mapped_column(String(3), default="NGN")
     subtotal: Mapped[float] = mapped_column(MONEY, default=0)
     tax: Mapped[float] = mapped_column(MONEY, default=0)
+    # Cost of transporting this purchase (freight/logistics), rolled into landed cost.
+    transport_cost: Mapped[float] = mapped_column(MONEY, default=0)
     total: Mapped[float] = mapped_column(MONEY, default=0)
+
+    # Procurement lifecycle: a request to a supplier → confirmed order → goods received.
+    status: Mapped[str] = mapped_column(String(16), default="REQUEST", index=True)
 
     # What we've paid the supplier so far (kept in step by the payables service).
     amount_paid: Mapped[float] = mapped_column(MONEY, default=0)

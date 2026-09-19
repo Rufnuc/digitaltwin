@@ -21,6 +21,7 @@ from app.api.v1.endpoints import (
     meta,
     notifications,
     payables,
+    procurement,
     quant,
     receivables,
     shipping,
@@ -70,6 +71,7 @@ api_router.include_router(cashflow.router)
 api_router.include_router(tax.router)
 api_router.include_router(traceability.router)
 api_router.include_router(waybills.router)
+api_router.include_router(procurement.router)
 api_router.include_router(stock.router)
 api_router.include_router(company.router)
 api_router.include_router(products_ep.router)
