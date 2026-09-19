@@ -57,3 +57,25 @@ def test_import_endpoint_roundtrip(client, auth_headers):
     lst = client.get("/api/v1/imports", headers=auth_headers("STAFF"))
     assert lst.status_code == 200
     assert any(b["id"] == body["import_id"] for b in lst.json()["items"])
+
+
+SUPPLIER_CSV = b"""code,name,location,currency,payment_terms,lead_time_days,status
+SUP-001,Shandong Auto Parts,Import - China,USD,30/70,45,ACTIVE
+SUP-002,Lagos Spares,Lagos,NGN,Net 14,3,ACTIVE
+SUP-001,Dup Supplier,Kano,NGN,,5,ACTIVE
+"""
+
+
+def test_supplier_import_dedupe_and_types(db):
+    from app.models.supplier import Supplier
+    mapping = {
+        "code": "code", "name": "name", "location": "location", "currency": "currency",
+        "payment_terms": "payment_terms", "lead_time_days": "lead_time_days", "status": "status",
+    }
+    result = ingestion.validate_and_import(db, "suppliers", SUPPLIER_CSV, mapping)
+    assert result["rows_total"] == 3
+    assert result["rows_imported"] == 2  # third row is a duplicate code
+    assert result["rows_failed"] == 1
+    s = db.scalar(select(Supplier).where(Supplier.code == "SUP-001"))
+    assert s.name == "Shandong Auto Parts" and s.lead_time_days == 45  # int coerced
+    assert s.currency == "USD" and s.data_origin == "REAL"

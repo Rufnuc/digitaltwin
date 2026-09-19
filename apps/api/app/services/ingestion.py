@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 from app.models.customer import Customer
 from app.models.expense import Expense
 from app.models.product import Product
+from app.models.supplier import Supplier
 
 
 @dataclass
@@ -64,6 +65,20 @@ ENTITY_SPECS: dict[str, EntitySpec] = {
             FieldSpec("manufacturer"),
             FieldSpec("purchase_cost", "float"),
             FieldSpec("selling_price", "float"),
+        ],
+    ),
+    "suppliers": EntitySpec(
+        model=Supplier,
+        unique_field="code",
+        fields=[
+            FieldSpec("code", "str", True),
+            FieldSpec("name", "str", True),
+            FieldSpec("location"),
+            FieldSpec("currency"),
+            FieldSpec("payment_terms"),
+            FieldSpec("lead_time_days", "int"),
+            FieldSpec("status"),
+            # reliability_score is graded by the system, not set at import.
         ],
     ),
     "expenses": EntitySpec(

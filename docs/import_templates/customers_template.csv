@@ -1,0 +1,3 @@
+code,name,location,contact_email,contact_phone,customer_type,status
+CUS-0001,Bello Farms Ltd,Kano,bello@example.com,08030000000,wholesale,ACTIVE
+CUS-0002,Adeyemi Tractors,Ibadan,,08040000000,retail,ACTIVE

@@ -1,0 +1,4 @@
+supplier_code,product_code,warehouse,quantity,unit_cost,received_date,shipment_ref
+SUP-001,PRD-0001,Lagos Main,500,4800,2026-02-10,MAERSK-4471
+SUP-001,PRD-0002,Lagos Main,120,39500,2026-02-10,MAERSK-4471
+SUP-002,PRD-0001,Kano Depot,80,5200,2026-03-01,LOCAL-0312
