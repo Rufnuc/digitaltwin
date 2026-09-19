@@ -384,6 +384,19 @@ function InvoiceDrawer({
               >
                 Print / download
               </button>
+              <button
+                onClick={async () => {
+                  try {
+                    await api.createWaybill({ invoice_id: inv.id });
+                    window.location.href = "/waybills";
+                  } catch (e) {
+                    alert(e instanceof Error ? e.message : "Could not create waybill");
+                  }
+                }}
+                className="rounded border border-line px-3 py-1.5 text-sm hover:bg-wash"
+              >
+                Create waybill
+              </button>
             </div>
 
             <div className="text-xs font-medium uppercase tracking-wide text-muted">Line items</div>

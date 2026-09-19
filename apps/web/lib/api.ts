@@ -163,6 +163,16 @@ export const api = {
         headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined,
       },
     ),
+  // ---- Waybills (dispatch) ----
+  listWaybills: (params = "") =>
+    request<{ items: Waybill[]; total: number; limit: number; offset: number }>(
+      `/waybills${params}`,
+    ),
+  getWaybill: (id: number) => request<Waybill>(`/waybills/${id}`),
+  createWaybill: (body: unknown) =>
+    request<Waybill>("/waybills", { method: "POST", body: JSON.stringify(body) }),
+  updateWaybill: (id: number, body: unknown) =>
+    request<Waybill>(`/waybills/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   invoiceDetail: (id: number) => request<InvoiceDetail>(`/invoices/${id}`),
   invoiceVersions: (id: number) =>
     request<{ items: InvoiceVersionRow[] }>(`/invoices/${id}/versions`),
@@ -1048,6 +1058,29 @@ export interface AssistantToolCall {
   provenance: string;
   result: Record<string, unknown>;
 }
+export interface Waybill {
+  id: number;
+  waybill_number: string;
+  invoice_id: number;
+  status: string; // PENDING | DISPATCHED | DELIVERED | CANCELLED
+  dispatched_at: string | null;
+  apprentice_name: string | null;
+  transport_company: string | null;
+  driver_phone: string | null;
+  vehicle_info: string | null;
+  station: string | null;
+  receiver_name: string | null;
+  receiver_phone: string | null;
+  destination: string | null;
+  notes: string | null;
+  created_at: string | null;
+  created_by: string | null;
+  invoice_number: string | null;
+  invoice_total: number | null;
+  customer_id: number | null;
+  customer_name: string | null;
+}
+
 export interface AssistantProposal {
   action: string;
   confirmation_token: string;

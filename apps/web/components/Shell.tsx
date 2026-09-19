@@ -26,6 +26,7 @@ const NAV: NavSection[] = [
       { href: "/customers", label: "Customers" },
       // Invoices covers recording sales and the New Sale flow (via its button).
       { href: "/invoices", label: "Invoices & Sales" },
+      { href: "/waybills", label: "Waybills", minRole: "STAFF" },
       { href: "/receivables", label: "Receivables", minRole: "STAFF" },
       { href: "/cashflow", label: "Cash Flow", minRole: "MANAGER" },
       { href: "/tax", label: "Tax", minRole: "MANAGER" },

@@ -24,6 +24,7 @@ from app.models.supplier import Supplier
 from app.models.system import Alert
 from app.models.user import User
 from app.models.warehouse import StockLot, StockMovement
+from app.models.waybill import Waybill
 from app.services import audit
 
 router = APIRouter(tags=["admin"])
@@ -96,6 +97,8 @@ def purge_demo(
           (StockLot.data_origin == demo)
           | StockLot.product_id.in_(demo_products)
           | StockLot.supplier_id.in_(demo_suppliers))
+    # Dispatch records tied to demo invoices.
+    purge(Waybill, Waybill.invoice_id.in_(demo_invoices))
     # Money rows that point at demo invoices/customers/suppliers/purchases.
     purge(Payment,
           (Payment.data_origin == demo)
