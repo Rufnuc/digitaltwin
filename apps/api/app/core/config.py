@@ -1,10 +1,12 @@
 """Application settings, loaded from environment / .env (spec §48)."""
 from __future__ import annotations
 
+import json
 from functools import lru_cache
+from typing import Annotated
 
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -122,7 +124,10 @@ class Settings(BaseSettings):
     # CORS — the website origin(s) allowed to call the API. In production set this to
     # the business's Vercel domain(s). Accepts a comma-separated string (simplest for
     # a host env var, e.g. "https://fidelagric.vercel.app") or a JSON array.
-    CORS_ORIGINS: list[str] = Field(
+    # NoDecode: stop pydantic-settings from JSON-parsing the env value before our
+    # validator runs, so a plain "https://a.com,https://b.com" string is accepted
+    # (not only a JSON array). The validator handles both forms.
+    CORS_ORIGINS: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: ["http://localhost:3000", "http://127.0.0.1:3000"]
     )
 
@@ -131,9 +136,11 @@ class Settings(BaseSettings):
     def _parse_cors(cls, v: object) -> object:
         if isinstance(v, str):
             s = v.strip()
+            if not s:
+                return []
             if s.startswith("["):
-                return v  # JSON array — let pydantic parse it
-            return [o.strip() for o in s.split(",") if o.strip()]
+                return json.loads(s)  # JSON array form
+            return [o.strip() for o in s.split(",") if o.strip()]  # comma-separated form
         return v
 
     @property
