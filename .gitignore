@@ -33,3 +33,5 @@ uploads/
 
 # TS incremental build cache
 *.tsbuildinfo
+backups/
+data_migration/

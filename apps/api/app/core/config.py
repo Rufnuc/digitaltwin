@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -107,14 +107,41 @@ class Settings(BaseSettings):
     QUANT_LANDED_FX_BUFFER_PCT: float = 5.0   # placeholder
     QUANT_LANDED_QUALITY_PCT: float = 1.0     # placeholder
 
-    # CORS
+    # CORS — the website origin(s) allowed to call the API. In production set this to
+    # the business's Vercel domain(s). Accepts a comma-separated string (simplest for
+    # a host env var, e.g. "https://fidelagric.vercel.app") or a JSON array.
     CORS_ORIGINS: list[str] = Field(
         default_factory=lambda: ["http://localhost:3000", "http://127.0.0.1:3000"]
     )
 
+    @field_validator("CORS_ORIGINS", mode="before")
+    @classmethod
+    def _parse_cors(cls, v: object) -> object:
+        if isinstance(v, str):
+            s = v.strip()
+            if s.startswith("["):
+                return v  # JSON array — let pydantic parse it
+            return [o.strip() for o in s.split(",") if o.strip()]
+        return v
+
     @property
     def is_sqlite(self) -> bool:
         return self.DATABASE_URL.startswith("sqlite")
+
+    @property
+    def is_production(self) -> bool:
+        return self.ENVIRONMENT.strip().lower() == "production"
+
+    def production_config_errors(self) -> list[str]:
+        """Misconfigurations that must block a production boot (fail fast, don't run
+        insecure)."""
+        errs: list[str] = []
+        if self.is_production:
+            if self.AUTH_SECRET == "dev-insecure-secret-change-me":
+                errs.append("AUTH_SECRET must be a strong random value in production")
+            if self.is_sqlite:
+                errs.append("DATABASE_URL must point at Postgres in production, not sqlite")
+        return errs
 
 
 @lru_cache

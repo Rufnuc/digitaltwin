@@ -12,6 +12,15 @@ from app.core.config import settings
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger("digitaltwin")
 
+# Fail fast rather than boot an insecure production instance (default auth secret,
+# sqlite in prod, etc.). No-op in development.
+_config_errors = settings.production_config_errors()
+if _config_errors:
+    raise RuntimeError(
+        "Refusing to start in production with insecure config:\n  - "
+        + "\n  - ".join(_config_errors)
+    )
+
 app = FastAPI(
     title=f"{settings.PROJECT_NAME} API",
     version="0.1.0",

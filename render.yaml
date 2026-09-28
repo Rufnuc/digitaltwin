@@ -1,0 +1,39 @@
+# Render blueprint for ONE DigitalTwin API instance (one business).
+# You run two businesses (Fidel Agric, Urban Builds) = two separate deployments.
+# Easiest path is the dashboard ("New + → Web Service") once per business — see
+# docs/hosting_runbook.md. This file documents the exact settings either way; if you
+# use it as a Blueprint, create it in a separate Render project per business and give
+# the service a business-specific name.
+services:
+  - type: web
+    name: digitaltwin-api            # e.g. fidelagric-api / urbanbuilds-api
+    runtime: docker
+    rootDir: apps/api
+    dockerfilePath: Dockerfile
+    plan: free                       # upgrade to "starter" for always-on (no cold sleep)
+    healthCheckPath: /health
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: AUTH_SECRET             # strong random secret (Render generates one)
+        generateValue: true
+      - key: DATABASE_URL            # Neon connection string (set in dashboard)
+        sync: false
+      - key: CORS_ORIGINS            # this business's Vercel URL, e.g. https://fidelagric.vercel.app
+        sync: false
+      - key: AI_PROVIDER
+        value: rule_based
+      - key: ASSISTANT_ALLOW_WRITES
+        value: "false"
+      - key: WHISPER_MODEL           # empty = voice input off (no torch in prod image)
+        value: ""
+      - key: MARKET_DATA_PROVIDER
+        value: live
+      - key: AISSTREAM_API_KEY       # your aisstream key (set in dashboard, never committed)
+        sync: false
+      - key: OWNER_EMAIL             # first owner login, created on first boot
+        sync: false
+      - key: OWNER_PASSWORD          # min 8 chars (set in dashboard)
+        sync: false
+      - key: OWNER_NAME
+        sync: false

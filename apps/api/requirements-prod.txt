@@ -1,0 +1,30 @@
+# Production runtime dependencies (hosted API).
+# Deliberately EXCLUDES openai-whisper/torch (voice input is local-only, ~1-2 GB,
+# won't fit small cloud instances) and dev tools (pytest/ruff). Voice transcription
+# reports "unavailable" in prod; set WHISPER_MODEL="" to keep it disabled.
+
+# Web framework
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+python-multipart==0.0.20
+
+# Data / validation
+pydantic==2.10.4
+pydantic-settings==2.7.1
+email-validator==2.2.0
+
+# Database
+SQLAlchemy==2.0.36
+alembic==1.14.0
+psycopg[binary]==3.2.3
+
+# Security
+passlib[bcrypt]==1.7.4
+bcrypt==4.0.1  # pinned: passlib 1.7.4 cannot read bcrypt>=4.1 version metadata
+python-jose[cryptography]==3.3.0
+
+# Numerics (simulation engine)
+numpy==2.2.1
+
+# Live shipping monitor (aisstream.io AIS WebSocket)
+websockets==16.1.1
