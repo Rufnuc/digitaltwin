@@ -46,10 +46,15 @@ export function EntityForm({
     setValues((prev) => ({ ...prev, [key]: val }));
   }
 
+  // Editing an existing record (initial values supplied) vs creating a new one.
+  const isEdit = Object.keys(initial).length > 0;
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    // Build the payload, coercing numbers and dropping empty optionals.
+    // Build the payload, coercing numbers. On create we drop empty optionals; on
+    // edit we send an explicit null so a cleared field is actually cleared (not left
+    // at its old value).
     const payload: Record<string, unknown> = {};
     for (const f of fields) {
       const raw = values[f.key]?.trim() ?? "";
@@ -58,6 +63,7 @@ export function EntityForm({
           setError(`${f.label} is required`);
           return;
         }
+        if (isEdit) payload[f.key] = null;
         continue;
       }
       payload[f.key] = f.type === "number" ? Number(raw) : raw;
