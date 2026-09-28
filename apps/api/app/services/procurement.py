@@ -242,6 +242,7 @@ def delete_document(db: Session, purchase_id: int, doc_id: int) -> bool:
     d = get_document(db, purchase_id, doc_id)
     if d is None:
         return False
+    get_storage().delete(d.storage_key)  # remove the stored object, not just the row
     db.delete(d)
     db.commit()
     return True

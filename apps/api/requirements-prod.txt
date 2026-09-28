@@ -28,3 +28,6 @@ numpy==2.2.1
 
 # Live shipping monitor (aisstream.io AIS WebSocket)
 websockets==16.1.1
+
+# Durable object storage (Cloudflare R2 / S3-compatible)
+boto3==1.43.103

@@ -32,3 +32,6 @@ openai-whisper==20240930
 pytest==8.3.4
 httpx==0.28.1
 ruff==0.8.6
+
+# Durable object storage (Cloudflare R2 / S3-compatible)
+boto3==1.43.103

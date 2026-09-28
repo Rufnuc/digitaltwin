@@ -5,10 +5,9 @@ Product.image_url for list/card views).
 """
 from __future__ import annotations
 
-import os
+import mimetypes
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -18,7 +17,7 @@ from app.core.enums import Role
 from app.models.product import Product, ProductImage
 from app.models.user import User
 from app.services import product_analytics
-from app.services.storage import get_storage
+from app.services.storage import StorageError, get_storage
 
 router = APIRouter(tags=["products"])
 
@@ -152,12 +151,10 @@ def delete_image(
     img = db.get(ProductImage, image_id)
     if img is None or img.product_id != product_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "image not found")
-    # Remove the stored file if it was an upload we own.
+    # Remove the stored object if it was an upload we own.
     if img.url.startswith("/api/v1/products/image/"):
         key = img.url.rsplit("/", 1)[-1]
-        path = get_storage().path_for(key)
-        if os.path.isfile(path):
-            os.remove(path)
+        get_storage().delete(key)
     db.delete(img)
     db.flush()
     _reindex_primary(db, prod)
@@ -166,12 +163,16 @@ def delete_image(
 
 
 @router.get("/products/image/{key}")
-def get_product_image(key: str) -> FileResponse:
+def get_product_image(key: str) -> Response:
     """Serve a stored product image. The key is an unguessable storage id, so this
-    is open (no auth) — an <img> tag can load it directly."""
+    is open (no auth) — an <img> tag can load it directly. Streams from whichever
+    storage driver is active (local or R2)."""
     if "/" in key or ".." in key:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "bad key")
-    path = get_storage().path_for(key)
-    if not os.path.isfile(path):
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "image not found")
-    return FileResponse(path)
+    try:
+        data = get_storage().read(key)
+    except StorageError:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "image not found") from None
+    media_type = mimetypes.guess_type(key)[0] or "application/octet-stream"
+    return Response(content=data, media_type=media_type,
+                    headers={"Cache-Control": "public, max-age=86400"})

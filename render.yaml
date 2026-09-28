@@ -31,6 +31,19 @@ services:
         value: live
       - key: AISSTREAM_API_KEY       # your aisstream key (set in dashboard, never committed)
         sync: false
+      # Durable file storage (Cloudflare R2). Leave STORAGE_DRIVER unset until R2 is
+      # ready (defaults to local); set it to "r2" with the R2_* values to keep uploaded
+      # documents/photos across redeploys (see runbook Part 5). Own bucket per business.
+      - key: STORAGE_DRIVER
+        sync: false
+      - key: R2_ACCOUNT_ID
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_BUCKET
+        sync: false
       - key: OWNER_EMAIL             # first owner login, created on first boot
         sync: false
       - key: OWNER_PASSWORD          # min 8 chars (set in dashboard)

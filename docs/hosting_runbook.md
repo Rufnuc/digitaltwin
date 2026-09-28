@@ -120,18 +120,47 @@ Then repeat Parts 1–4 for the second business.
 
 ---
 
+## Part 5 — Durable file storage on Cloudflare R2  *(per business, recommended)*
+
+Uploaded files (waybill/receipt/invoice attachments, product photos) must live in
+object storage, or they're lost on every redeploy (see the note below). Cloudflare R2
+is S3-compatible, has a generous free tier, and no egress fees.
+
+1. Sign up / log in at **cloudflare.com** → **R2**. (You may need to add a card to
+   activate R2; the free tier covers small usage.)
+2. **Create bucket** → name it `fidelagric-files` (later `urbanbuilds-files`). Keep it
+   **private** (no public access — the app streams files through the API).
+3. **Manage R2 API Tokens → Create API Token** → permission **Object Read & Write**,
+   scoped to that bucket. Copy the **Access Key ID**, **Secret Access Key**, and your
+   **Account ID** (shown on the R2 overview; the endpoint is
+   `https://<ACCOUNT_ID>.r2.cloudflarestorage.com`).
+4. In **Render → your API service → Environment**, add:
+   | Key | Value |
+   |-----|-------|
+   | `STORAGE_DRIVER` | `r2` |
+   | `R2_ACCOUNT_ID` | your Cloudflare account id |
+   | `R2_ACCESS_KEY_ID` | the token's Access Key ID |
+   | `R2_SECRET_ACCESS_KEY` | the token's Secret Access Key |
+   | `R2_BUCKET` | `fidelagric-files` (the bucket name) |
+   (Or set `R2_ENDPOINT` to the full `https://<id>.r2.cloudflarestorage.com` instead of
+   `R2_ACCOUNT_ID`.)
+5. Save — Render redeploys. From then on, uploads go to R2 and survive redeploys.
+   Each business uses its **own bucket + token** so their files stay separate.
+
+Leaving `STORAGE_DRIVER` unset (or `local`) keeps the old local-disk behaviour.
+
+---
+
 ## Notes & gotchas (read once)
 
 - **Cold starts (free tier):** Render's free API "sleeps" after ~15 min idle; the next
   request wakes it (30–60s). Fine for occasional use; upgrade to **Starter (~$7/mo)**
   per business for always-on. Neon and Vercel free tiers don't have this problem.
-- **Uploaded files are NOT durable on the free tier.** Waybill/receipt/document
-  uploads are written to the API's local disk, which Render **wipes on every redeploy
-  or restart.** The database records survive, but the attached files would be lost.
-  Before relying on document uploads in production, either add a **Render Persistent
-  Disk** mounted at `/app/storage` (paid) or move storage to S3/Cloudflare R2 (a small
-  code change to the storage driver — ask me and I'll do it). Everything else
-  (invoices, stock, payments, customers…) is in the database and fully durable.
+- **Uploaded files:** set up **Cloudflare R2 (Part 5)** so attachments are durable.
+  Without it (`STORAGE_DRIVER=local`), uploaded files sit on the API's local disk,
+  which Render **wipes on every redeploy** — the database records survive but the files
+  would be lost. The R2 driver is built in; just set the env vars. Everything else
+  (invoices, stock, payments, customers…) lives in the database and is always durable.
 - **Backups:** Neon keeps automatic point-in-time backups. Your pre-launch local
   backup is in `backups/` (git-ignored).
 - **Secrets:** never commit the aisstream key, DB password, or `AUTH_SECRET` — they

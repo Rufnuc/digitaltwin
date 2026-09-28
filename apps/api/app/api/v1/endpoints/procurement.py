@@ -10,10 +10,10 @@ from fastapi import (
     Form,
     HTTPException,
     Query,
+    Response,
     UploadFile,
     status,
 )
-from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -21,7 +21,7 @@ from app.api.deps import db_session, require_role
 from app.core.enums import Role
 from app.models.user import User
 from app.services import procurement
-from app.services.storage import get_storage
+from app.services.storage import StorageError, get_storage
 
 router = APIRouter(tags=["procurement"], prefix="/purchases")
 
@@ -176,13 +176,19 @@ def download_document(
     doc_id: int,
     db: Session = Depends(db_session),
     _: User = Depends(require_role(Role.STAFF)),
-) -> FileResponse:
+) -> Response:
     d = procurement.get_document(db, purchase_id, doc_id)
     if d is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "document not found")
-    path = get_storage().path_for(d.storage_key)
-    return FileResponse(path, filename=d.filename,
-                        media_type=d.content_type or "application/octet-stream")
+    try:
+        data = get_storage().read(d.storage_key)
+    except StorageError:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "document file not found") from None
+    return Response(
+        content=data,
+        media_type=d.content_type or "application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{d.filename}"'},
+    )
 
 
 @router.delete("/{purchase_id}/documents/{doc_id}")

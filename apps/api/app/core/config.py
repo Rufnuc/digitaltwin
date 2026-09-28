@@ -28,9 +28,21 @@ class Settings(BaseSettings):
     # infra; docker/postgres is used by setting DATABASE_URL (see .env.example).
     DATABASE_URL: str = "sqlite:///./digitaltwin.db"
 
-    # Storage abstraction
+    # Storage abstraction. "local" = filesystem (dev; ephemeral on most hosts).
+    # "r2"/"s3" = durable object storage (Cloudflare R2 or any S3-compatible bucket),
+    # configured with the R2_* settings below. Recommended in production so uploaded
+    # documents/receipts survive redeploys.
     STORAGE_DRIVER: str = "local"
     STORAGE_LOCAL_PATH: str = "./storage"
+    # Cloudflare R2 / S3-compatible object storage (used when STORAGE_DRIVER=r2|s3).
+    # Secrets come from env only, never committed. R2_ENDPOINT is
+    # https://<account-id>.r2.cloudflarestorage.com (or set R2_ACCOUNT_ID to derive it).
+    R2_ENDPOINT: str = ""
+    R2_ACCOUNT_ID: str = ""
+    R2_ACCESS_KEY_ID: str = ""
+    R2_SECRET_ACCESS_KEY: str = ""
+    R2_BUCKET: str = ""
+    R2_REGION: str = "auto"
 
     # AI assistant (Phase 4). Providers behind one seam:
     #   rule_based — offline deterministic router (no LLM, no key)
