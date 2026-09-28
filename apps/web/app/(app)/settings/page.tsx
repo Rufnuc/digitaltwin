@@ -175,6 +175,14 @@ function UsersPanel() {
     window.alert("Password updated.");
   }
 
+  async function changeEmail(id: number, current: string) {
+    const em = window.prompt("New login email:", current);
+    if (!em || em.trim() === current) return;
+    await change(id, { email: em.trim() });
+    setError(null);
+    window.alert("Login email updated.");
+  }
+
   async function create() {
     setBusy(true);
     setError(null);
@@ -223,6 +231,12 @@ function UsersPanel() {
             {u.is_active ? "Active" : "Inactive"}
           </button>,
           <span className="flex gap-1">
+            <button
+              onClick={() => changeEmail(u.id, u.email)}
+              className="rounded border border-line px-2 py-1 text-xs hover:bg-wash"
+            >
+              Email
+            </button>
             <button
               onClick={() => resetPassword(u.id, u.full_name || u.email)}
               className="rounded border border-line px-2 py-1 text-xs hover:bg-wash"

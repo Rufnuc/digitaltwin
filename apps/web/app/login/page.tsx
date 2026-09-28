@@ -3,16 +3,10 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, setSession } from "@/lib/api";
 
-const DEMO_ACCOUNTS = [
-  ["owner@demo.example.com", "owner12345", "Owner"],
-  ["admin@demo.example.com", "admin12345", "Admin"],
-  ["salesgirl@demo.example.com", "sales12345", "Salesgirl"],
-];
-
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("owner@demo.example.com");
-  const [password, setPassword] = useState("owner12345");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -43,6 +37,8 @@ export default function LoginPage() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               type="email"
+              autoComplete="username"
+              required
               className="w-full rounded border border-line px-3 py-2 text-sm outline-none focus:border-ink"
             />
           </div>
@@ -52,6 +48,8 @@ export default function LoginPage() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               type="password"
+              autoComplete="current-password"
+              required
               className="w-full rounded border border-line px-3 py-2 text-sm outline-none focus:border-ink"
             />
           </div>
@@ -63,23 +61,6 @@ export default function LoginPage() {
             {busy ? "Signing in…" : "Sign in"}
           </button>
         </form>
-        <div className="mt-6 border-t border-line pt-4">
-          <div className="mb-2 text-[11px] uppercase tracking-wide text-muted">Demo accounts</div>
-          <div className="grid grid-cols-2 gap-2">
-            {DEMO_ACCOUNTS.map(([em, pw, label]) => (
-              <button
-                key={em}
-                onClick={() => {
-                  setEmail(em);
-                  setPassword(pw);
-                }}
-                className="rounded border border-line px-2 py-1 text-xs hover:bg-wash"
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
       </div>
     </div>
   );

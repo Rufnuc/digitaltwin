@@ -172,6 +172,19 @@ def update_user(
         user.role = new_role
     if "full_name" in changes and changes["full_name"] is not None:
         user.full_name = changes["full_name"]
+    if "email" in changes and changes["email"] is not None:
+        new_email = str(changes["email"]).strip().lower()
+        # Only change the login email of yourself or a lower-privileged user, and
+        # keep emails unique.
+        if user.id != admin.id and role_rank(user.role) >= role_rank(admin.role):
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                "You cannot change the email of a user at your level or higher",
+            )
+        clash = db.scalar(select(User).where(User.email == new_email, User.id != user.id))
+        if clash is not None:
+            raise HTTPException(status.HTTP_409_CONFLICT, "That email is already in use")
+        user.email = new_email
     if "is_active" in changes and changes["is_active"] is not None:
         # Don't let an admin lock themselves out.
         if user.id == admin.id and changes["is_active"] is False:
