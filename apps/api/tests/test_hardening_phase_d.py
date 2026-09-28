@@ -76,22 +76,32 @@ def test_password_hash_never_in_audit(client, auth_headers, db):
             assert "hashed_password" not in payload
 
 
-# --- D3: delete safety ------------------------------------------------------
-def test_delete_referenced_product_refused(client, auth_headers, db):
+# --- D3: delete safety (soft delete — the row and its history survive) ------
+def test_delete_referenced_product_soft_deletes(client, auth_headers, db):
+    """A product referenced by an invoice can be deleted; it is soft-deleted
+    (deleted_at stamped) so the invoice line is never orphaned."""
     p = Product(code="DELP", name="Del Product", purchase_cost=100, selling_price=200)
     db.add(p)
     db.commit()
+    pid = p.id
     inv = Invoice(invoice_number="DREF-1", invoice_date=__import__("datetime").date(2026, 1, 1),
                   total=200)
     inv.lines.append(InvoiceLine(product_id=p.id, quantity=1, unit_price=200, line_total=200))
     db.add(inv)
     db.commit()
-    r = client.delete(f"/api/v1/products/{p.id}", headers=auth_headers("MANAGER"))
-    assert r.status_code == 409, r.text
-    assert db.get(Product, p.id) is not None  # not destroyed
+    r = client.delete(f"/api/v1/products/{pid}", headers=auth_headers("MANAGER"))
+    assert r.status_code == 204, r.text
+    db.expire_all()
+    still = db.get(Product, pid)
+    assert still is not None and still.deleted_at is not None  # retained, just hidden
+    # It no longer shows up in the app's product list.
+    listed = client.get("/api/v1/products", headers=auth_headers("MANAGER")).json()
+    assert all(row["id"] != pid for row in listed["items"])
+    # Get by id now 404s (gone from the app), but the DB row remains.
+    assert client.get(f"/api/v1/products/{pid}", headers=auth_headers("MANAGER")).status_code == 404
 
 
-def test_delete_unreferenced_customer_archives(client, auth_headers, db):
+def test_delete_customer_soft_deletes(client, auth_headers, db):
     c = Customer(code="ARCH-1", name="Archive Me")
     db.add(c)
     db.commit()
@@ -100,19 +110,22 @@ def test_delete_unreferenced_customer_archives(client, auth_headers, db):
     assert r.status_code == 204, r.text
     db.expire_all()
     still = db.get(Customer, cid)
-    assert still is not None and still.status == "ARCHIVED"  # soft-deleted, not gone
+    assert still is not None and still.deleted_at is not None  # soft-deleted, not gone
 
 
-def test_delete_referenced_customer_refused(client, auth_headers, db):
+def test_delete_referenced_customer_soft_deletes(client, auth_headers, db):
     c = Customer(code="CREF-1", name="Has Invoice")
     db.add(c)
     db.commit()
+    cid = c.id
     inv = Invoice(invoice_number="CREF-INV", invoice_date=__import__("datetime").date(2026, 1, 1),
                   customer_id=c.id, total=100)
     db.add(inv)
     db.commit()
-    r = client.delete(f"/api/v1/customers/{c.id}", headers=auth_headers("MANAGER"))
-    assert r.status_code == 409, r.text
+    r = client.delete(f"/api/v1/customers/{cid}", headers=auth_headers("MANAGER"))
+    assert r.status_code == 204, r.text  # allowed — the invoice keeps pointing at the retained row
+    db.expire_all()
+    assert db.get(Customer, cid).deleted_at is not None
 
 
 # --- D4: sensitive-field gating --------------------------------------------

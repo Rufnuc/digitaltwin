@@ -12,6 +12,7 @@ from app.api.v1.endpoints import (
     auth,
     cashflow,
     company,
+    customers,
     dashboard,
     documents,
     impact,
@@ -74,6 +75,7 @@ api_router.include_router(waybills.router)
 api_router.include_router(procurement.router)
 api_router.include_router(stock.router)
 api_router.include_router(company.router)
+api_router.include_router(customers.router)
 api_router.include_router(products_ep.router)
 api_router.include_router(quant.router)
 api_router.include_router(meta.router)
@@ -89,6 +91,9 @@ api_router.include_router(
         tags=["customers"],
         search_fields=("name", "code", "location"),
         auto_code_prefix="CUS-",
+        # The restricted SALESGIRL role may add/edit customers (front-desk) but the
+        # delete_role stays MANAGER, so it can never delete one.
+        write_allow=(Role.SALESGIRL,),
     ),
     prefix="/customers",
 )

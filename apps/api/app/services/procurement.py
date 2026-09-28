@@ -12,9 +12,10 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.product import Product
-from app.models.purchase import Purchase, PurchaseLine
+from app.models.purchase import Purchase, PurchaseDocument, PurchaseLine
 from app.models.supplier import Supplier
 from app.services import stock
+from app.services.storage import get_storage
 
 STATUSES = ("REQUEST", "ORDERED", "RECEIVED", "CANCELLED")
 
@@ -51,6 +52,7 @@ def _to_dict(db: Session, p: Purchase, with_lines: bool = False) -> dict:
         "transport_cost": float(p.transport_cost or 0), "total": float(p.total or 0),
         "amount_paid": float(p.amount_paid or 0), "payment_status": p.payment_status,
         "line_count": len(p.lines),
+        "document_count": len(p.documents),
     }
     if with_lines:
         names = _product_names(db, {ln.product_id for ln in p.lines})
@@ -115,7 +117,7 @@ def receive(db: Session, *, purchase_id: int, warehouse_id: int, transport_cost:
     (linking supplier ↔ product ↔ warehouse) with the transport cost spread across
     units as landed cost. Marks the purchase RECEIVED."""
     p = db.scalars(
-        select(Purchase).options(selectinload(Purchase.lines)).where(Purchase.id == purchase_id)
+        select(Purchase).options(selectinload(Purchase.lines), selectinload(Purchase.documents)).where(Purchase.id == purchase_id)
     ).first()
     if p is None:
         return {"status": "NOT_FOUND"}
@@ -153,7 +155,7 @@ def receive(db: Session, *, purchase_id: int, warehouse_id: int, transport_cost:
 
 def get_purchase(db: Session, purchase_id: int) -> dict | None:
     p = db.scalars(
-        select(Purchase).options(selectinload(Purchase.lines)).where(Purchase.id == purchase_id)
+        select(Purchase).options(selectinload(Purchase.lines), selectinload(Purchase.documents)).where(Purchase.id == purchase_id)
     ).first()
     if p is None:
         return None
@@ -162,7 +164,7 @@ def get_purchase(db: Session, purchase_id: int) -> dict | None:
 
 def list_purchases(db: Session, *, status: str | None = None, supplier_id: int | None = None,
                    q: str | None = None, limit: int = 50, offset: int = 0) -> dict:
-    stmt = select(Purchase).options(selectinload(Purchase.lines))
+    stmt = select(Purchase).options(selectinload(Purchase.lines), selectinload(Purchase.documents))
     if status:
         stmt = stmt.where(Purchase.status == status)
     if supplier_id is not None:
@@ -173,3 +175,73 @@ def list_purchases(db: Session, *, status: str | None = None, supplier_id: int |
     rows = db.scalars(stmt.order_by(Purchase.id.desc()).limit(limit).offset(offset)).all()
     return {"items": [_to_dict(db, p) for p in rows], "total": int(total or 0),
             "limit": limit, "offset": offset}
+
+
+# ---------------------------------------------------------------------------
+# Shipping documents attached to a purchase (waybills, packing lists, B/L,
+# supplier invoices, proof of payment, photos). The file bytes live in object
+# storage; a PurchaseDocument row indexes it against the purchase.
+# ---------------------------------------------------------------------------
+
+def _doc_dict(d: PurchaseDocument) -> dict:
+    return {
+        "id": d.id, "purchase_id": d.purchase_id, "payment_id": d.payment_id,
+        "filename": d.filename,
+        "content_type": d.content_type, "size_bytes": d.size_bytes,
+        "kind": d.kind, "note": d.note,
+        "created_at": d.created_at.isoformat() if d.created_at else None,
+    }
+
+
+def add_document(db: Session, *, purchase_id: int, filename: str, data: bytes,
+                 content_type: str | None = None, kind: str = "shipping",
+                 note: str | None = None, payment_id: int | None = None,
+                 user_id: int | None = None) -> dict | None:
+    """Store an uploaded document and attach it to the purchase — or, when
+    payment_id is given, to a specific payment as a receipt/proof.
+    Returns None when the purchase does not exist."""
+    p = db.get(Purchase, purchase_id)
+    if p is None:
+        return None
+    key = get_storage().save(data, filename or "document", content_type)
+    doc = PurchaseDocument(
+        purchase_id=purchase_id, payment_id=payment_id, filename=filename or "document",
+        content_type=content_type, storage_key=key, size_bytes=len(data),
+        kind=(kind or "shipping")[:32], note=note, uploaded_by_user_id=user_id,
+    )
+    db.add(doc)
+    db.commit()
+    db.refresh(doc)
+    return _doc_dict(doc)
+
+
+def list_documents(db: Session, purchase_id: int,
+                   payment_id: int | None = None, payment_only: bool = False) -> list[dict]:
+    """Documents for a purchase. By default returns only purchase-level (shipping)
+    documents — those not tied to a payment. Pass payment_id to get one payment's
+    receipts, or payment_only=True for every payment receipt on the purchase."""
+    stmt = select(PurchaseDocument).where(PurchaseDocument.purchase_id == purchase_id)
+    if payment_id is not None:
+        stmt = stmt.where(PurchaseDocument.payment_id == payment_id)
+    elif payment_only:
+        stmt = stmt.where(PurchaseDocument.payment_id.is_not(None))
+    else:
+        stmt = stmt.where(PurchaseDocument.payment_id.is_(None))
+    rows = db.scalars(stmt.order_by(PurchaseDocument.id)).all()
+    return [_doc_dict(d) for d in rows]
+
+
+def get_document(db: Session, purchase_id: int, doc_id: int) -> PurchaseDocument | None:
+    d = db.get(PurchaseDocument, doc_id)
+    if d is None or d.purchase_id != purchase_id:
+        return None
+    return d
+
+
+def delete_document(db: Session, purchase_id: int, doc_id: int) -> bool:
+    d = get_document(db, purchase_id, doc_id)
+    if d is None:
+        return False
+    db.delete(d)
+    db.commit()
+    return True

@@ -41,9 +41,13 @@ class Role(str, Enum):
     ADMIN = "ADMIN"
     OWNER = "OWNER"
     MANAGER = "MANAGER"
-    ANALYST = "ANALYST"
+    ANALYST = "ANALYST"  # legacy: no longer assigned/seeded, kept for old records
     STAFF = "STAFF"
-    VIEWER = "VIEWER"
+    # SALESGIRL is a restricted front-desk role: it sits below STAFF so hierarchical
+    # checks deny it by default, and it is whitelisted onto only the few actions it
+    # needs (raise invoices/waybills, add customers, record payments).
+    SALESGIRL = "SALESGIRL"
+    VIEWER = "VIEWER"  # legacy: no longer assigned/seeded, kept for old records
 
 
 # Privilege ordering used for hierarchical checks. OWNER is the top role — the
@@ -51,6 +55,7 @@ class Role(str, Enum):
 # like user management). ADMIN is the technical super-user just below.
 ROLE_ORDER: list[Role] = [
     Role.VIEWER,
+    Role.SALESGIRL,
     Role.STAFF,
     Role.ANALYST,
     Role.MANAGER,

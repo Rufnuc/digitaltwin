@@ -2,8 +2,9 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { api, type AlertItem, type CashFlow, type DashboardSummary } from "@/lib/api";
+import { api, getRole, type AlertItem, type CashFlow, type DashboardSummary } from "@/lib/api";
 import { money, num, pct } from "@/lib/format";
+import { isSalesgirl } from "@/lib/roles";
 import { PageHeader } from "@/components/Shell";
 import { Card, DemoBanner, Kpi, LineChart, ProvenanceBadge } from "@/components/ui";
 
@@ -27,6 +28,8 @@ export default function DashboardPage() {
 
   const k = summary.kpis;
   const netPositive = (cash?.net_cash_flow ?? 0) >= 0;
+  // Front desk sees operational counts only — never money in/out or totals.
+  const sales = isSalesgirl(getRole());
   return (
     <div>
       <PageHeader
@@ -35,8 +38,8 @@ export default function DashboardPage() {
       />
       {summary.data_status.is_demo_only && <DemoBanner />}
 
-      {/* Money row — links to the money features */}
-      {cash && (
+      {/* Money row — links to the money features (hidden for the front desk) */}
+      {cash && !sales && (
         <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
           <Link href="/receivables">
             <Kpi label="Owed to you" value={money(cash.owed_to_us)} sub="receivables →" />
@@ -58,16 +61,17 @@ export default function DashboardPage() {
       )}
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4">
-        <Link href="/analytics"><Kpi label="Revenue" value={money(k.revenue)} sub="trailing period" /></Link>
-        <Link href="/analytics"><Kpi label="Gross Profit" value={money(k.gross_profit)} sub={`margin ${pct(k.gross_margin)}`} /></Link>
-        <Link href="/analytics"><Kpi label="Net Profit" value={money(k.net_profit)} sub={`net margin ${pct(k.net_margin)}`} /></Link>
+        {!sales && <Link href="/analytics"><Kpi label="Revenue" value={money(k.revenue)} sub="trailing period" /></Link>}
+        {!sales && <Link href="/analytics"><Kpi label="Gross Profit" value={money(k.gross_profit)} sub={`margin ${pct(k.gross_margin)}`} /></Link>}
+        {!sales && <Link href="/analytics"><Kpi label="Net Profit" value={money(k.net_profit)} sub={`net margin ${pct(k.net_margin)}`} /></Link>}
         <Link href="/invoices"><Kpi label="Orders" value={num(k.orders)} sub={`${num(k.units_sold)} units`} /></Link>
         <Link href="/customers"><Kpi label="Active Customers" value={num(k.active_customers)} /></Link>
-        <Link href="/analytics"><Kpi label="COGS" value={money(k.cogs)} /></Link>
-        <Link href="/expenses"><Kpi label="Operating Expenses" value={money(k.operating_expenses)} /></Link>
-        <Link href="/stock"><Kpi label="Inventory Value" value={money(k.inventory_value)} /></Link>
+        {!sales && <Link href="/analytics"><Kpi label="COGS" value={money(k.cogs)} /></Link>}
+        {!sales && <Link href="/expenses"><Kpi label="Operating Expenses" value={money(k.operating_expenses)} /></Link>}
+        {!sales && <Link href="/stock"><Kpi label="Inventory Value" value={money(k.inventory_value)} /></Link>}
       </div>
 
+      {!sales && (
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Card className="p-4 lg:col-span-2">
           <div className="mb-2 flex items-center justify-between">
@@ -104,6 +108,7 @@ export default function DashboardPage() {
           )}
         </Card>
       </div>
+      )}
 
       <p className="mt-4 text-xs text-muted">
         All figures are model outputs computed from the underlying records — never invented.

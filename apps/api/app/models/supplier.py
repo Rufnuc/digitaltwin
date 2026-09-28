@@ -4,10 +4,10 @@ from sqlalchemy import Float, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.enums import EntityStatus
-from app.db.base import Base, ProvenanceMixin, TimestampMixin
+from app.db.base import Base, ProvenanceMixin, SoftDeleteMixin, TimestampMixin
 
 
-class Supplier(Base, TimestampMixin, ProvenanceMixin):
+class Supplier(Base, TimestampMixin, ProvenanceMixin, SoftDeleteMixin):
     __tablename__ = "suppliers"
 
     id: Mapped[int] = mapped_column(primary_key=True)

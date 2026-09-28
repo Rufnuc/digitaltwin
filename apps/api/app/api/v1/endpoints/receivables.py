@@ -33,7 +33,7 @@ def record_payment(
     invoice_id: int,
     payload: PaymentIn,
     db: Session = Depends(db_session),
-    user: User = Depends(require_role(Role.STAFF)),
+    user: User = Depends(require_role(Role.STAFF, allow=(Role.SALESGIRL,))),
     idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
 ) -> dict:
     """Record a payment a customer made against an invoice."""

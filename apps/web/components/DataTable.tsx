@@ -33,6 +33,8 @@ export function ResourceTable<T extends Record<string, unknown>>({
   entityLabel = "record",
   writeRole = "STAFF",
   deleteRole = "MANAGER",
+  writeAllow = [],
+  requireSearch = false,
   idKey = "id",
   viewable = false,
   renderExtra,
@@ -46,6 +48,10 @@ export function ResourceTable<T extends Record<string, unknown>>({
   entityLabel?: string;
   writeRole?: Role;
   deleteRole?: Role;
+  // Roles allowed to create/edit beyond the hierarchy (e.g. SALESGIRL on customers).
+  writeAllow?: string[];
+  // When true, the list stays hidden until the user searches (front-desk lookup).
+  requireSearch?: boolean;
   idKey?: string;
   viewable?: boolean;
   // Extra content rendered inside the view modal (e.g. a customer's receivables).
@@ -67,12 +73,21 @@ export function ResourceTable<T extends Record<string, unknown>>({
   const limit = 25;
 
   const role = getRole();
-  const canWrite = !!formFields && roleAtLeast(role, writeRole);
+  const canWrite = !!formFields && (roleAtLeast(role, writeRole) || (!!role && writeAllow.includes(role)));
   const canDelete = !!formFields && roleAtLeast(role, deleteRole);
+  // Front-desk lookup mode: nothing is listed until a search is typed.
+  const gateList = requireSearch && q.trim() === "";
   const cols = columns.length + (showProvenance ? 1 : 0) + (canWrite ? 1 : 0);
 
   useEffect(() => {
     let active = true;
+    // In front-desk lookup mode, don't load anything until the user searches.
+    if (requireSearch && q.trim() === "") {
+      setItems([]);
+      setTotal(0);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     const parts = [`limit=${limit}`, `offset=${offset}`];
     if (q) parts.push(`q=${encodeURIComponent(q)}`);
@@ -177,7 +192,7 @@ export function ResourceTable<T extends Record<string, unknown>>({
           <div className="rounded-lg border border-line px-3 py-6 text-sm text-muted">Loading…</div>
         ) : items.length === 0 ? (
           <div className="rounded-lg border border-line px-3 py-6 text-sm text-muted">
-            No records.
+            {gateList ? `Search by name above to look up a ${entityLabel}.` : "No records."}
           </div>
         ) : (
           items.map((row, i) => (
@@ -258,7 +273,7 @@ export function ResourceTable<T extends Record<string, unknown>>({
             ) : items.length === 0 ? (
               <tr>
                 <td className="px-3 py-6 text-muted" colSpan={cols}>
-                  No records.
+                  {gateList ? `Search by name above to look up a ${entityLabel}.` : "No records."}
                 </td>
               </tr>
             ) : (

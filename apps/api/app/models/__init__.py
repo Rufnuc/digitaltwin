@@ -27,18 +27,24 @@ from app.models.product import (  # noqa: F401
     ProductSubstitute,
 )
 from app.models.provenance import DataImport, DataSource, Document  # noqa: F401
-from app.models.purchase import Purchase, PurchaseLine, SupplierPayment  # noqa: F401
+from app.models.purchase import (  # noqa: F401
+    Purchase,
+    PurchaseDocument,
+    PurchaseLine,
+    SupplierPayment,
+)
 from app.models.shipping import VesselTrack  # noqa: F401
 from app.models.simulation import SimulationResult, SimulationRun  # noqa: F401
 from app.models.supplier import Supplier  # noqa: F401
 from app.models.system import Alert, AuditLog, Notification  # noqa: F401
-from app.models.user import User  # noqa: F401
+from app.models.user import User, UserDevice  # noqa: F401
 from app.models.warehouse import StockLot, StockMovement, Warehouse  # noqa: F401
 from app.models.waybill import Waybill  # noqa: F401
 
 __all__ = [
     "Base",
     "User",
+    "UserDevice",
     "CompanyProfile",
     "Customer",
     "Supplier",
@@ -53,6 +59,7 @@ __all__ = [
     "Purchase",
     "SupplierPayment",
     "PurchaseLine",
+    "PurchaseDocument",
     "Inventory",
     "Expense",
     "Branch",

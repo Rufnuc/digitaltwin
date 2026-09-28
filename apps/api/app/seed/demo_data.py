@@ -44,8 +44,7 @@ SCALE = 600
 DEMO_USERS = [
     ("owner@demo.example.com", "Demo Owner", "owner12345", Role.OWNER),
     ("admin@demo.example.com", "Demo Admin", "admin12345", Role.ADMIN),
-    ("analyst@demo.example.com", "Demo Analyst", "analyst12345", Role.ANALYST),
-    ("viewer@demo.example.com", "Demo Viewer", "viewer12345", Role.VIEWER),
+    ("salesgirl@demo.example.com", "Demo Salesgirl", "sales12345", Role.SALESGIRL),
 ]
 
 CATEGORIES = ["Engine", "Brakes", "Electrical", "Suspension", "Filters", "Body"]

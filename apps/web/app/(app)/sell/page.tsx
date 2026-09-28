@@ -7,7 +7,7 @@ import { Card } from "@/components/ui";
 import { EntityForm, type FormField } from "@/components/EntityForm";
 import { api, getRole, newIdempotencyKey } from "@/lib/api";
 import { money2 } from "@/lib/format";
-import { roleAtLeast } from "@/lib/roles";
+import { roleAtLeast, isSalesgirl } from "@/lib/roles";
 
 interface Ref {
   id: number;
@@ -59,7 +59,7 @@ export default function SellPage() {
   // response), regenerated after a success so the next sale is a distinct action.
   const [idemKey, setIdemKey] = useState(() => newIdempotencyKey());
 
-  const canSell = roleAtLeast(getRole(), "STAFF");
+  const canSell = roleAtLeast(getRole(), "STAFF") || isSalesgirl(getRole());
 
   useEffect(() => {
     api.list<CustomerRef>("customers", "?limit=200").then((r) => setCustomers(r.items)).catch(() => {});

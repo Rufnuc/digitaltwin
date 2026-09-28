@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, type Purchase } from "@/lib/api";
 import { PageHeader } from "@/components/Shell";
 import { Card } from "@/components/ui";
+import { PurchaseDocuments } from "@/components/PurchaseDocuments";
 
 const naira = (n: number | null | undefined) =>
   n == null ? "—" : "₦" + Math.round(n).toLocaleString("en-NG");
@@ -28,7 +29,7 @@ function Badge({ status }: { status: string }) {
 type SupplierPick = { id: number; code: string; name: string };
 type ProductPick = { id: number; code: string; name: string; purchase_cost: number | null };
 type WarehousePick = { id: number; code: string; name: string };
-type DraftLine = { product_id: number; product_code: string; product_name: string; quantity: number; unit_cost: number };
+type DraftLine = { product_id: number | null; product_code: string | null; product_name: string; quantity: number; unit_cost: number };
 
 export default function ProcurementPage() {
   const [rows, setRows] = useState<Purchase[]>([]);
@@ -85,7 +86,10 @@ export default function ProcurementPage() {
             {rows.map((p) => (
               <tr key={p.id} onClick={() => openDetail(p.id)}
                 className="cursor-pointer border-t border-line hover:bg-wash">
-                <td className="px-3 py-2 font-medium">{p.reference}</td>
+                <td className="px-3 py-2 font-medium">{p.reference}
+                  {(p.document_count ?? 0) > 0 && (
+                    <span className="ml-1.5 text-xs text-muted" title={`${p.document_count} document(s)`}>📎{p.document_count}</span>
+                  )}</td>
                 <td className="px-3 py-2">{p.supplier_name ?? "—"}</td>
                 <td className="px-3 py-2">{p.line_count}</td>
                 <td className="px-3 py-2">{naira(p.total)}</td>
@@ -192,6 +196,14 @@ function PurchaseDrawer({ purchase, onClose, onChanged }: {
           <p className="mt-2 text-xs text-green-700 dark:text-green-300">✓ Received — stock is in the warehouse and traced to this supplier.</p>
         )}
 
+        <div className="mt-4 border-t border-line pt-3">
+          <h3 className="mb-2 text-sm font-semibold">Shipping documents</h3>
+          <PurchaseDocuments
+            purchaseId={p.id}
+            onChanged={() => { api.getPurchase(p.id).then((u) => { setP(u); onChanged(u); }).catch(() => {}); }}
+          />
+        </div>
+
         {receiving && (
           <ReceiveModal purchase={p} onClose={() => setReceiving(false)}
             onReceived={(u) => { setReceiving(false); setP(u); onChanged(u); }} />
@@ -283,17 +295,32 @@ function NewRequestModal({ onClose, onCreated }: {
       quantity: 1, unit_cost: pr.purchase_cost ?? 0 }]);
     setMatches([]); setPq("");
   }
+  function addCustom(name: string) {
+    setLines([...lines, { product_id: null, product_code: null,
+      product_name: name.trim(), quantity: 1, unit_cost: 0 }]);
+    setMatches([]); setPq("");
+  }
   function setLine(i: number, k: "quantity" | "unit_cost", v: number) {
     setLines(lines.map((l, j) => (j === i ? { ...l, [k]: v } : l)));
+  }
+  function setLineName(i: number, name: string) {
+    setLines(lines.map((l, j) => (j === i ? { ...l, product_name: name } : l)));
   }
 
   async function submit() {
     if (lines.length === 0) { setErr("Add at least one item"); return; }
+    if (lines.some((l) => !l.product_id && !l.product_name.trim())) {
+      setErr("Give every custom item a name"); return;
+    }
     setBusy(true); setErr(null);
     try {
       onCreated(await api.createRequest({
         supplier_id: supplierId || null,
-        lines: lines.map((l) => ({ product_id: l.product_id, quantity: l.quantity, unit_cost: l.unit_cost })),
+        lines: lines.map((l) => ({
+          product_id: l.product_id,
+          description: l.product_id ? null : l.product_name.trim(),
+          quantity: l.quantity, unit_cost: l.unit_cost,
+        })),
       }));
     } catch (e) { setErr(e instanceof Error ? e.message : "Could not create"); setBusy(false); }
   }
@@ -316,13 +343,18 @@ function NewRequestModal({ onClose, onCreated }: {
           </select>
         </label>
 
-        <div className="mb-2 flex gap-2">
+        <div className="mb-1 flex gap-2">
           <input value={pq} onChange={(e) => setPq(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && searchProducts()}
-            placeholder="Search product to add…"
+            placeholder="Search catalogue to add an item…"
             className="flex-1 rounded border border-line bg-paper px-2 py-1.5 text-sm outline-none focus:border-ink" />
           <button onClick={searchProducts} className="rounded border border-line px-3 py-1.5 text-sm hover:bg-wash">Find</button>
+          <button onClick={() => addCustom(pq)} title="Add an item that isn't in the catalogue yet"
+            className="rounded border border-line px-3 py-1.5 text-sm hover:bg-wash">+ Custom</button>
         </div>
+        <p className="mb-2 text-[11px] text-muted">
+          Add as many items as you need. Not in the catalogue yet? Use “+ Custom” to type the item name.
+        </p>
         {matches.length > 0 && (
           <div className="mb-2 max-h-40 space-y-1 overflow-y-auto rounded border border-line p-1">
             {matches.map((m) => (
@@ -344,7 +376,15 @@ function NewRequestModal({ onClose, onCreated }: {
               <tbody>
                 {lines.map((l, i) => (
                   <tr key={i} className="border-t border-line">
-                    <td className="px-2 py-1.5">{l.product_name}<span className="text-muted"> · {l.product_code}</span></td>
+                    <td className="px-2 py-1.5">
+                      {l.product_id ? (
+                        <span>{l.product_name}<span className="text-muted"> · {l.product_code}</span></span>
+                      ) : (
+                        <input value={l.product_name} onChange={(e) => setLineName(i, e.target.value)}
+                          placeholder="Item name"
+                          className="w-full rounded border border-line bg-paper px-1 py-0.5 text-sm" />
+                      )}
+                    </td>
                     <td className="px-2 py-1"><input type="number" value={l.quantity}
                       onChange={(e) => setLine(i, "quantity", Number(e.target.value))}
                       className="w-14 rounded border border-line bg-paper px-1 py-0.5 text-sm" /></td>

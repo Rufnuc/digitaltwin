@@ -6,8 +6,7 @@ import { api, setSession } from "@/lib/api";
 const DEMO_ACCOUNTS = [
   ["owner@demo.example.com", "owner12345", "Owner"],
   ["admin@demo.example.com", "admin12345", "Admin"],
-  ["analyst@demo.example.com", "analyst12345", "Analyst"],
-  ["viewer@demo.example.com", "viewer12345", "Viewer"],
+  ["salesgirl@demo.example.com", "sales12345", "Salesgirl"],
 ];
 
 export default function LoginPage() {

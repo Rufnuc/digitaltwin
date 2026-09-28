@@ -10,6 +10,7 @@ The CRUD routes annotate their body param with a *closure variable* holding a
 Pydantic model class; FastAPI must see the real class object at decoration time,
 not a deferred string, to bind it as a request body.
 """
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
@@ -86,16 +87,21 @@ def build_crud_router(
     tags: list[str],
     write_role: Role = Role.STAFF,
     delete_role: Role = Role.MANAGER,
+    write_allow: tuple[Role, ...] = (),
     search_fields: tuple[str, ...] = ("name",),
     auto_code_prefix: str | None = None,
     writable: bool = True,
 ) -> APIRouter:
-    """When ``writable`` is False only the read routes are exposed — used for stock
+    """``write_allow`` whitelists extra roles for create/update (not delete) — e.g.
+    SALESGIRL may add/edit customers but never delete them.
+
+    When ``writable`` is False only the read routes are exposed — used for stock
     Inventory, whose quantities are owned by the lot ledger and must never be edited
     directly (that would bypass the audited stock-movement trail)."""
     router = APIRouter(tags=tags)
 
     columns = set(model.__table__.columns.keys())
+    soft_delete = "deleted_at" in columns  # this model hides on delete rather than dropping
 
     def _next_code(db: Session) -> str:
         """Generate the next sequential code like PREFIX0001, filling gaps safely."""
@@ -121,6 +127,10 @@ def build_crud_router(
         sort_dir: str = Query("asc", pattern="^(asc|desc)$"),
     ) -> Any:
         stmt = select(model)
+
+        # Hide soft-deleted rows: they stay in the DB for history but leave the app.
+        if soft_delete:
+            stmt = stmt.where(model.deleted_at.is_(None))
 
         # Full-text-ish search across the configured search fields.
         if q and search_fields:
@@ -173,7 +183,7 @@ def build_crud_router(
         _: User = Depends(get_current_user),
     ) -> Any:
         obj = db.get(model, item_id)
-        if obj is None:
+        if obj is None or (soft_delete and getattr(obj, "deleted_at", None) is not None):
             raise HTTPException(status.HTTP_404_NOT_FOUND, f"{entity_type} {item_id} not found")
         return obj
 
@@ -182,7 +192,7 @@ def build_crud_router(
         def create_item(
             payload: create_schema,  # type: ignore[valid-type]
             db: Session = Depends(db_session),
-            user: User = Depends(require_role(write_role)),
+            user: User = Depends(require_role(write_role, allow=write_allow)),
         ) -> Any:
             data = payload.model_dump()
             data.pop("data_origin", None)  # provenance is never client-settable
@@ -207,7 +217,7 @@ def build_crud_router(
             item_id: int,
             payload: update_schema,  # type: ignore[valid-type]
             db: Session = Depends(db_session),
-            user: User = Depends(require_role(write_role)),
+            user: User = Depends(require_role(write_role, allow=write_allow)),
         ) -> Any:
             obj = db.get(model, item_id)
             if obj is None:
@@ -239,10 +249,17 @@ def build_crud_router(
             user: User = Depends(require_role(delete_role)),
         ) -> Response:
             obj = db.get(model, item_id)
-            if obj is None:
+            if obj is None or (soft_delete and getattr(obj, "deleted_at", None) is not None):
                 raise HTTPException(status.HTTP_404_NOT_FOUND, f"{entity_type} {item_id} not found")
-            # Refuse to destroy a record that financial/stock history points at — that
-            # would orphan invoices, lots or payments. Archive instead where possible.
+            # Soft delete: stamp deleted_at and leave the row (and all the history that
+            # points at it) intact. The record simply disappears from the app's lists.
+            if soft_delete:
+                obj.deleted_at = datetime.now(timezone.utc)
+                db.commit()  # recorded by the audit-trail listener as an update
+                return Response(status_code=status.HTTP_204_NO_CONTENT)
+            # Legacy path (models without deleted_at): refuse to destroy a record that
+            # financial/stock history points at — that would orphan invoices, lots or
+            # payments. Archive instead where possible.
             blocker = _delete_blocker(db, entity_type, item_id)
             if blocker:
                 raise HTTPException(

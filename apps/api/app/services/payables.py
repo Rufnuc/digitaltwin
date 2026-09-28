@@ -17,10 +17,15 @@ _EPS = 0.01
 
 
 def _recalc(db: Session, purchase: Purchase) -> None:
+    # amount_paid is denominated in the purchase's own currency, so only payments
+    # made in that currency net against the balance. Foreign-currency payments are
+    # still recorded (for the audit trail) but don't move the naira/base balance.
+    pur_ccy = (purchase.currency or "NGN").upper()
     paid = float(db.scalar(
         select(func.coalesce(func.sum(SupplierPayment.amount), 0)).where(
             SupplierPayment.purchase_id == purchase.id,
             SupplierPayment.status == "CONFIRMED",
+            func.upper(func.coalesce(SupplierPayment.currency, "NGN")) == pur_ccy,
         )
     ) or 0.0)
     purchase.amount_paid = round(paid, 2)
@@ -40,6 +45,7 @@ def balance(purchase: Purchase) -> float:
 def record_supplier_payment(db: Session, *, purchase_id: int, amount: float,
                             method: str = "transfer", paid_at: date | None = None,
                             reference: str | None = None, note: str | None = None,
+                            currency: str | None = None,
                             user_id: int | None = None, txid: str | None = None,
                             from_account: str | None = None, from_name: str | None = None,
                             to_account: str | None = None, to_name: str | None = None) -> dict:
@@ -49,14 +55,20 @@ def record_supplier_payment(db: Session, *, purchase_id: int, amount: float,
     amount = round(float(amount), 2)
     if amount <= 0:
         return {"status": "ERROR", "error": "amount must be positive"}
-    outstanding = balance(pur)
-    if amount > outstanding + _EPS:
-        return {"status": "ERROR",
-                "error": f"amount {amount} exceeds what we still owe ({outstanding})",
-                "outstanding": outstanding}
+    # Default the payment currency to the purchase's own currency.
+    ccy = (currency or pur.currency or "NGN").upper()[:3]
+    # We only reconcile against the purchase balance when paying in the purchase's
+    # own currency; a foreign-currency payment is recorded but not netted (rates vary).
+    same_ccy = ccy == (pur.currency or "NGN").upper()
+    if same_ccy:
+        outstanding = balance(pur)
+        if amount > outstanding + _EPS:
+            return {"status": "ERROR",
+                    "error": f"amount {amount} exceeds what we still owe ({outstanding})",
+                    "outstanding": outstanding}
     pay = SupplierPayment(
-        purchase_id=pur.id, supplier_id=pur.supplier_id, amount=amount, method=method,
-        paid_at=paid_at or date.today(), reference=reference, note=note,
+        purchase_id=pur.id, supplier_id=pur.supplier_id, amount=amount, currency=ccy,
+        method=method, paid_at=paid_at or date.today(), reference=reference, note=note,
         status="CONFIRMED", recorded_by_user_id=user_id, data_origin="REAL",
         txid=txid, from_account=from_account, from_name=from_name,
         to_account=to_account, to_name=to_name,
@@ -119,8 +131,8 @@ def payables_summary(db: Session, as_of: date | None = None) -> dict:
 def list_supplier_payments(db: Session, purchase_id: int) -> list[dict]:
     rows = db.scalars(select(SupplierPayment).where(
         SupplierPayment.purchase_id == purchase_id).order_by(SupplierPayment.id)).all()
-    return [{"id": p.id, "amount": float(p.amount), "method": p.method,
-             "reference": p.reference, "paid_at": p.paid_at.isoformat(),
+    return [{"id": p.id, "amount": float(p.amount), "currency": p.currency or "NGN",
+             "method": p.method, "reference": p.reference, "paid_at": p.paid_at.isoformat(),
              "status": p.status, "txid": p.txid, "from_account": p.from_account,
              "from_name": p.from_name, "to_account": p.to_account, "to_name": p.to_name}
             for p in rows]

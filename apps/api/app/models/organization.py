@@ -4,13 +4,13 @@ from sqlalchemy import ForeignKey, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.enums import EntityStatus
-from app.db.base import Base, TimestampMixin
+from app.db.base import Base, SoftDeleteMixin, TimestampMixin
 
 # Shared money column type (portable across Postgres/SQLite).
 MONEY = Numeric(16, 2)
 
 
-class Branch(Base, TimestampMixin):
+class Branch(Base, TimestampMixin, SoftDeleteMixin):
     __tablename__ = "branches"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -21,7 +21,7 @@ class Branch(Base, TimestampMixin):
     opened_on: Mapped[str | None] = mapped_column(String(10), nullable=True)  # ISO date
 
 
-class Employee(Base, TimestampMixin):
+class Employee(Base, TimestampMixin, SoftDeleteMixin):
     __tablename__ = "employees"
 
     id: Mapped[int] = mapped_column(primary_key=True)

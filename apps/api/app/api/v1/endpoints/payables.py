@@ -17,6 +17,7 @@ router = APIRouter(tags=["payables"], prefix="/payables")
 
 class SupplierPaymentIn(BaseModel):
     amount: float = Field(gt=0)
+    currency: str | None = Field(None, max_length=3)
     method: str = Field("transfer", max_length=32)
     paid_at: date | None = None
     reference: str | None = Field(None, max_length=128)
@@ -38,8 +39,8 @@ def record_payment(
     """Record a payment we made to a supplier against a purchase."""
     r = payables.record_supplier_payment(
         db, purchase_id=purchase_id, amount=payload.amount, method=payload.method,
-        paid_at=payload.paid_at, reference=payload.reference, note=payload.note,
-        user_id=user.id, txid=payload.txid, from_account=payload.from_account,
+        currency=payload.currency, paid_at=payload.paid_at, reference=payload.reference,
+        note=payload.note, user_id=user.id, txid=payload.txid, from_account=payload.from_account,
         from_name=payload.from_name, to_account=payload.to_account,
         to_name=payload.to_name,
     )

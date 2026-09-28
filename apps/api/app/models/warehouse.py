@@ -19,7 +19,7 @@ from datetime import date, datetime
 from sqlalchemy import BigInteger, Date, DateTime, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.base import Base, ProvenanceMixin, TimestampMixin
+from app.db.base import Base, ProvenanceMixin, SoftDeleteMixin, TimestampMixin
 from app.models.organization import MONEY
 
 
@@ -34,7 +34,7 @@ class MovementType:
     ALL = (RECEIPT, SALE, TRANSFER_OUT, TRANSFER_IN, ADJUSTMENT)
 
 
-class Warehouse(Base, TimestampMixin):
+class Warehouse(Base, TimestampMixin, SoftDeleteMixin):
     """A physical storage location. Added and maintained by the business."""
 
     __tablename__ = "warehouses"

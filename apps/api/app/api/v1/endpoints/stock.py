@@ -141,6 +141,25 @@ def lots(
                            in_stock_only=in_stock_only, limit=limit, offset=offset)
 
 
+@router.get("/stock/levels")
+def levels(
+    _: User = Depends(get_current_user),
+    db: Session = Depends(db_session),
+    q: str | None = Query(None, description="search product name/code"),
+    warehouse_id: int | None = Query(None),
+    category: str | None = Query(None),
+    low_stock: bool = Query(False, description="only products at/below reorder level"),
+    sort: str = Query("on_hand", description="on_hand | value | name | code | reorder_level"),
+    sort_dir: str = Query("desc", pattern="^(asc|desc)$"),
+    limit: int = Query(200, le=1000),
+    offset: int = Query(0, ge=0),
+) -> dict:
+    """Per-product stock levels with search, filters and sort."""
+    return stock.levels(db, q=q, warehouse_id=warehouse_id, category=category,
+                        low_stock=low_stock, sort=sort, sort_dir=sort_dir,
+                        limit=limit, offset=offset)
+
+
 @router.get("/stock/lots/{lot_id}")
 def lot(lot_id: int, _: User = Depends(get_current_user),
         db: Session = Depends(db_session)) -> dict:
@@ -148,6 +167,16 @@ def lot(lot_id: int, _: User = Depends(get_current_user),
     if detail is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"lot {lot_id} not found")
     return detail
+
+
+@router.get("/warehouses/{warehouse_id}/summary")
+def warehouse_summary(warehouse_id: int, _: User = Depends(get_current_user),
+                      db: Session = Depends(db_session)) -> dict:
+    """Value of goods stored, quantity available, products held and recent movements."""
+    r = stock.warehouse_summary(db, warehouse_id)
+    if r is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"warehouse {warehouse_id} not found")
+    return r
 
 
 @router.get("/stock/products/{product_id}/on-hand")

@@ -17,9 +17,20 @@ from app.api.deps import db_session, get_current_user, require_role
 from app.core.enums import Role
 from app.models.product import Product, ProductImage
 from app.models.user import User
+from app.services import product_analytics
 from app.services.storage import get_storage
 
 router = APIRouter(tags=["products"])
+
+
+@router.get("/products/{product_id}/analytics")
+def analytics(product_id: int, _: User = Depends(get_current_user),
+              db: Session = Depends(db_session)) -> dict:
+    """Units bought vs sold over time, current stock/value, and revenue earned."""
+    r = product_analytics.product_analytics(db, product_id)
+    if r is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"product {product_id} not found")
+    return r
 
 _MAX_BYTES = 5 * 1024 * 1024
 _IMAGE_TYPES = {"image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif"}

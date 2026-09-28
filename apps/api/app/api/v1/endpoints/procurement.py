@@ -3,7 +3,17 @@ from __future__ import annotations
 
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    UploadFile,
+    status,
+)
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -11,6 +21,7 @@ from app.api.deps import db_session, require_role
 from app.core.enums import Role
 from app.models.user import User
 from app.services import procurement
+from app.services.storage import get_storage
 
 router = APIRouter(tags=["procurement"], prefix="/purchases")
 
@@ -113,3 +124,74 @@ def receive(
     if r["status"] == "ERROR":
         raise HTTPException(status.HTTP_400_BAD_REQUEST, r["error"])
     return r
+
+
+# ---- Shipping documents attached to a purchase ----
+
+_MAX_DOC_BYTES = 25 * 1024 * 1024  # 25 MB per file
+
+
+@router.get("/{purchase_id}/documents")
+def list_documents(
+    purchase_id: int,
+    db: Session = Depends(db_session),
+    _: User = Depends(require_role(Role.STAFF)),
+    payment_id: int | None = Query(None, description="filter to one payment's receipts"),
+) -> dict:
+    return {"items": procurement.list_documents(db, purchase_id, payment_id=payment_id)}
+
+
+@router.post("/{purchase_id}/documents", status_code=status.HTTP_201_CREATED)
+async def upload_document(
+    purchase_id: int,
+    file: UploadFile = File(...),
+    kind: str = Form("shipping"),
+    note: str | None = Form(None),
+    payment_id: int | None = Form(None),
+    db: Session = Depends(db_session),
+    user: User = Depends(require_role(Role.STAFF)),
+) -> dict:
+    """Attach a shipping/supply document (waybill, packing list, B/L, invoice,
+    proof of payment, photo) to a purchase — or a receipt to a specific payment
+    when payment_id is given."""
+    data = await file.read()
+    if not data:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "empty file")
+    if len(data) > _MAX_DOC_BYTES:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                            "file too large (max 25 MB)")
+    r = procurement.add_document(
+        db, purchase_id=purchase_id, filename=file.filename or "document",
+        data=data, content_type=file.content_type, kind=kind, note=note,
+        payment_id=payment_id, user_id=user.id,
+    )
+    if r is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "purchase not found")
+    return r
+
+
+@router.get("/{purchase_id}/documents/{doc_id}/download")
+def download_document(
+    purchase_id: int,
+    doc_id: int,
+    db: Session = Depends(db_session),
+    _: User = Depends(require_role(Role.STAFF)),
+) -> FileResponse:
+    d = procurement.get_document(db, purchase_id, doc_id)
+    if d is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "document not found")
+    path = get_storage().path_for(d.storage_key)
+    return FileResponse(path, filename=d.filename,
+                        media_type=d.content_type or "application/octet-stream")
+
+
+@router.delete("/{purchase_id}/documents/{doc_id}")
+def delete_document(
+    purchase_id: int,
+    doc_id: int,
+    db: Session = Depends(db_session),
+    _: User = Depends(require_role(Role.MANAGER)),
+) -> dict:
+    if not procurement.delete_document(db, purchase_id, doc_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "document not found")
+    return {"ok": True}

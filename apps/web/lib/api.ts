@@ -103,12 +103,50 @@ function onUnauthorized(path: string) {
   }
 }
 
+// A stable per-browser id for device binding. Generated once and kept in
+// localStorage; sent on login so device-locked accounts can be tied to it.
+const DEVICE_KEY = "dt_device_id";
+export function getDeviceId(): string {
+  if (typeof window === "undefined") return "";
+  try {
+    let id = window.localStorage.getItem(DEVICE_KEY);
+    if (!id) {
+      id = (window.crypto?.randomUUID?.() ??
+        `dev-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+      window.localStorage.setItem(DEVICE_KEY, id);
+    }
+    return id;
+  } catch {
+    return "";
+  }
+}
+function deviceLabel(): string {
+  if (typeof navigator === "undefined") return "";
+  const ua = navigator.userAgent || "";
+  const os = /Windows/.test(ua) ? "Windows" : /Mac/.test(ua) ? "Mac"
+    : /Android/.test(ua) ? "Android" : /iPhone|iPad/.test(ua) ? "iOS"
+    : /Linux/.test(ua) ? "Linux" : "Device";
+  const browser = /Edg\//.test(ua) ? "Edge" : /Chrome\//.test(ua) ? "Chrome"
+    : /Firefox\//.test(ua) ? "Firefox" : /Safari\//.test(ua) ? "Safari" : "Browser";
+  return `${browser} on ${os}`;
+}
+
 export const api = {
   login: (email: string, password: string) =>
     request<{ access_token: string; role: string }>("/auth/login", {
       method: "POST",
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({
+        email, password, device_id: getDeviceId(), device_label: deviceLabel(),
+      }),
     }),
+  userDevices: (userId: number) =>
+    request<{ items: UserDevice[] }>(`/auth/users/${userId}/devices`),
+  setDeviceStatus: (userId: number, devicePk: number, status: string) =>
+    request<UserDevice>(`/auth/users/${userId}/devices/${devicePk}`, {
+      method: "PATCH", body: JSON.stringify({ status }),
+    }),
+  removeDevice: (userId: number, devicePk: number) =>
+    request<void>(`/auth/users/${userId}/devices/${devicePk}`, { method: "DELETE" }),
   me: () => request<{ id: number; email: string; full_name: string; role: string }>("/auth/me"),
   refresh: () =>
     request<{ access_token: string; role: string }>("/auth/refresh", { method: "POST" }),
@@ -135,6 +173,10 @@ export const api = {
     }),
   // ---- Warehouses & stock ----
   stockLots: (params = "") => request<{ items: StockLot[]; total: number }>(`/stock/lots${params}`),
+  stockLevels: (params = "") => request<StockLevelsResponse>(`/stock/levels${params}`),
+  warehouseSummary: (id: number) => request<WarehouseSummary>(`/warehouses/${id}/summary`),
+  customerAnalytics: (id: number) => request<CustomerAnalytics>(`/customers/${id}/analytics`),
+  productAnalytics: (id: number) => request<ProductAnalytics>(`/products/${id}/analytics`),
   stockLot: (id: number) => request<StockLotDetail>(`/stock/lots/${id}`),
   productOnHand: (productId: number) =>
     request<{ product_id: number; by_warehouse: { warehouse_id: number; warehouse: string; on_hand: number }[] }>(
@@ -191,6 +233,38 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  // ---- Shipping documents attached to a purchase ----
+  listPurchaseDocuments: (purchaseId: number, paymentId?: number) =>
+    request<{ items: PurchaseDocument[] }>(
+      `/purchases/${purchaseId}/documents${paymentId != null ? `?payment_id=${paymentId}` : ""}`,
+    ),
+  uploadPurchaseDocument: (purchaseId: number, file: File, kind = "shipping", note = "",
+    paymentId?: number): Promise<PurchaseDocument> => {
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("kind", kind);
+    if (note) fd.append("note", note);
+    if (paymentId != null) fd.append("payment_id", String(paymentId));
+    return requestForm<PurchaseDocument>(`/purchases/${purchaseId}/documents`, fd);
+  },
+  deletePurchaseDocument: (purchaseId: number, docId: number) =>
+    request<{ ok: boolean }>(`/purchases/${purchaseId}/documents/${docId}`, { method: "DELETE" }),
+  downloadPurchaseDocument: async (purchaseId: number, docId: number, filename: string) => {
+    const token = getToken();
+    const res = await fetch(`${V1}/purchases/${purchaseId}/documents/${docId}/download`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    });
+    if (!res.ok) throw new ApiError(res.status, res.statusText);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  },
   invoiceDetail: (id: number) => request<InvoiceDetail>(`/invoices/${id}`),
   invoiceVersions: (id: number) =>
     request<{ items: InvoiceVersionRow[] }>(`/invoices/${id}/versions`),
@@ -205,6 +279,8 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  purchasePayments: (purchaseId: number) =>
+    request<{ items: SupplierPaymentRow[] }>(`/payables/purchases/${purchaseId}/payments`),
   addProductImageUrl: (id: number, url: string) =>
     request<ProductImage>(`/products/${id}/image-url`, { method: "POST", body: JSON.stringify({ url }) }),
   setPrimaryImage: (id: number, imageId: number) =>
@@ -750,6 +826,16 @@ export interface UserRow {
   full_name: string;
   role: string;
   is_active: boolean;
+  device_locked?: boolean;
+}
+export interface UserDevice {
+  id: number;
+  device_id: string;
+  label: string | null;
+  status: string; // PENDING | APPROVED | BLOCKED
+  first_seen: string | null;
+  last_seen: string | null;
+  approved_by_user_id: number | null;
 }
 export interface DataStats {
   tables: { table: string; total: number; demo: number; real: number }[];
@@ -817,9 +903,11 @@ export interface SupplierTraceShipment {
   shipment_ref: string | null;
   vessel_mmsi: string | null;
   purchase_id: number | null;
+  purchase_ref: string | null;
 }
 export interface SupplierTracePayment {
   amount: number;
+  currency?: string;
   method: string | null;
   paid_at: string;
   reference: string | null;
@@ -836,6 +924,7 @@ export interface SupplierStatementRow {
   purchase_date: string | null;
   status: string;
   total: number;
+  currency?: string;
   amount_paid: number;
   balance: number;
   payment_status: string;
@@ -905,6 +994,7 @@ export interface InvoiceDetail {
   payment_status?: string;
   balance?: number;
   payments?: InvoicePayment[];
+  waybills?: { id: number; waybill_number: string; status: string; dispatched_at: string | null }[];
   lines: {
     product_id: number | null;
     original_description: string | null;
@@ -935,6 +1025,89 @@ export interface InvoiceVersionRow {
   changed_by: string | null;
   change_note: string | null;
   changed_at: string | null;
+}
+export interface ProductMonthlyPoint { month: string; received: number; sold: number }
+export interface ProductAnalytics {
+  product_id: number;
+  product_code: string | null;
+  product_name: string | null;
+  total_received: number;
+  total_sold: number;
+  on_hand: number;
+  stock_value: number;
+  revenue: number;
+  reorder_level: number | null;
+  monthly: ProductMonthlyPoint[];
+}
+export interface MonthlyPoint { month: string; revenue: number; orders: number }
+export interface CustomerTopProduct {
+  product_id: number | null;
+  code: string | null;
+  name: string | null;
+  quantity: number;
+  revenue: number;
+}
+export interface CustomerAnalytics {
+  customer_id: number;
+  customer_name: string;
+  orders: number;
+  revenue: number;
+  avg_order_value: number;
+  first_order: string | null;
+  last_order: string | null;
+  days_since_last: number | null;
+  avg_days_between_orders: number | null;
+  orders_last_90d: number;
+  returning: boolean;
+  monthly: MonthlyPoint[];
+  top_products: CustomerTopProduct[];
+}
+export interface WarehouseSummaryProduct {
+  product_id: number;
+  code: string | null;
+  name: string | null;
+  on_hand: number;
+  value: number;
+}
+export interface WarehouseMovement {
+  type: string;
+  product: string | null;
+  quantity: number;
+  note: string | null;
+  occurred_at: string | null;
+}
+export interface WarehouseSummary {
+  warehouse_id: number;
+  code: string;
+  name: string;
+  location: string | null;
+  type: string | null;
+  status: string | null;
+  total_value: number;
+  total_units: number;
+  product_count: number;
+  open_lot_count: number;
+  products: WarehouseSummaryProduct[];
+  recent_movements: WarehouseMovement[];
+}
+export interface StockLevel {
+  product_id: number;
+  code: string;
+  name: string;
+  category: string | null;
+  on_hand: number;
+  value: number;
+  reorder_level: number | null;
+  low: boolean;
+}
+export interface StockLevelsResponse {
+  items: StockLevel[];
+  total: number;
+  limit: number;
+  offset: number;
+  sort: string;
+  sort_dir: string;
+  categories: string[];
 }
 export interface StockLot {
   id: number;
@@ -1126,7 +1299,33 @@ export interface Purchase {
   amount_paid: number;
   payment_status: string;
   line_count: number;
+  document_count?: number;
   lines?: PurchaseLine[];
+}
+export interface SupplierPaymentRow {
+  id: number;
+  amount: number;
+  currency?: string;
+  method: string | null;
+  reference: string | null;
+  paid_at: string;
+  status: string;
+  txid: string | null;
+  from_account: string | null;
+  from_name: string | null;
+  to_account: string | null;
+  to_name: string | null;
+}
+export interface PurchaseDocument {
+  id: number;
+  purchase_id: number;
+  payment_id: number | null;
+  filename: string;
+  content_type: string | null;
+  size_bytes: number | null;
+  kind: string;
+  note: string | null;
+  created_at: string | null;
 }
 
 export interface Waybill {

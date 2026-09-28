@@ -64,9 +64,10 @@ def supplier_detail(db: Session, supplier_id: int) -> dict:
 
     # Shipments (lots), newest first, with warehouse + vessel/shipping ref.
     ship_rows = db.execute(
-        select(StockLot, Product.name, Warehouse.name)
+        select(StockLot, Product.name, Warehouse.name, Purchase.reference)
         .join(Product, Product.id == StockLot.product_id, isouter=True)
         .join(Warehouse, Warehouse.id == StockLot.warehouse_id, isouter=True)
+        .join(Purchase, Purchase.id == StockLot.purchase_id, isouter=True)
         .where(StockLot.supplier_id == supplier_id)
         .order_by(StockLot.received_date.desc(), StockLot.id.desc())
         .limit(100)
@@ -77,8 +78,8 @@ def supplier_detail(db: Session, supplier_id: int) -> dict:
          "quantity": int(lot.quantity_received or 0),
          "unit_cost": float(lot.unit_cost) if lot.unit_cost is not None else None,
          "shipment_ref": lot.shipment_ref, "vessel_mmsi": lot.vessel_mmsi,
-         "purchase_id": lot.purchase_id}
-        for lot, pname, wname in ship_rows
+         "purchase_id": lot.purchase_id, "purchase_ref": pref}
+        for lot, pname, wname, pref in ship_rows
     ]
 
     warehouses = sorted({s["warehouse"] for s in shipments if s["warehouse"]})
@@ -96,6 +97,7 @@ def supplier_detail(db: Session, supplier_id: int) -> dict:
         {"id": p.id, "reference": p.reference,
          "purchase_date": p.purchase_date.isoformat() if p.purchase_date else None,
          "status": p.status, "total": float(p.total or 0),
+         "currency": p.currency or "NGN",
          "amount_paid": float(p.amount_paid or 0), "balance": payables.balance(p),
          "payment_status": p.payment_status}
         for p in purchases
@@ -106,7 +108,8 @@ def supplier_detail(db: Session, supplier_id: int) -> dict:
         .order_by(SupplierPayment.paid_at.desc())
     ).all()
     payments = [
-        {"amount": float(p.amount), "method": p.method, "paid_at": p.paid_at.isoformat(),
+        {"amount": float(p.amount), "currency": p.currency or "NGN", "method": p.method,
+         "paid_at": p.paid_at.isoformat(),
          "reference": p.reference, "txid": p.txid, "purchase_id": p.purchase_id,
          "from_account": p.from_account, "from_name": p.from_name,
          "to_account": p.to_account, "to_name": p.to_name}

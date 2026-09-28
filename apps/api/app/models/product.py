@@ -5,11 +5,11 @@ from datetime import date
 from sqlalchemy import Boolean, Date, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.base import Base, ProvenanceMixin, TimestampMixin
+from app.db.base import Base, ProvenanceMixin, SoftDeleteMixin, TimestampMixin
 from app.models.organization import MONEY
 
 
-class Product(Base, TimestampMixin, ProvenanceMixin):
+class Product(Base, TimestampMixin, ProvenanceMixin, SoftDeleteMixin):
     __tablename__ = "products"
 
     id: Mapped[int] = mapped_column(primary_key=True)

@@ -47,7 +47,7 @@ class WaybillUpdate(BaseModel):
 def create_waybill(
     payload: WaybillCreate,
     db: Session = Depends(db_session),
-    user: User = Depends(require_role(Role.STAFF)),
+    user: User = Depends(require_role(Role.STAFF, allow=(Role.SALESGIRL,))),
 ) -> dict:
     data = payload.model_dump()
     invoice_id = data.pop("invoice_id")
@@ -62,7 +62,7 @@ def create_waybill(
 @router.get("")
 def list_waybills(
     db: Session = Depends(db_session),
-    _: User = Depends(require_role(Role.STAFF)),
+    _: User = Depends(require_role(Role.STAFF, allow=(Role.SALESGIRL,))),
     limit: int = Query(50, le=200),
     offset: int = Query(0, ge=0),
     status: str | None = Query(None, description="PENDING | DISPATCHED | DELIVERED | CANCELLED"),
@@ -78,7 +78,7 @@ def list_waybills(
 def get_waybill(
     waybill_id: int,
     db: Session = Depends(db_session),
-    _: User = Depends(require_role(Role.STAFF)),
+    _: User = Depends(require_role(Role.STAFF, allow=(Role.SALESGIRL,))),
 ) -> dict:
     r = waybills.get_waybill(db, waybill_id)
     if r is None:
@@ -91,7 +91,7 @@ def update_waybill(
     waybill_id: int,
     payload: WaybillUpdate,
     db: Session = Depends(db_session),
-    _: User = Depends(require_role(Role.STAFF)),
+    _: User = Depends(require_role(Role.STAFF, allow=(Role.SALESGIRL,))),
 ) -> dict:
     r = waybills.update_waybill(db, waybill_id, payload.model_dump(exclude_unset=True))
     if r["status"] == "NOT_FOUND":

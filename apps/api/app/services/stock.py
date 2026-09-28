@@ -12,7 +12,7 @@ from __future__ import annotations
 import secrets
 from datetime import date
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models.customer import Customer
@@ -411,6 +411,109 @@ def stock_value(db: Session) -> float:
         .where(Inventory.product_id.notin_(lot_products))
     ) or 0.0)
     return round(lot_val + legacy_val, 2)
+
+
+def levels(db: Session, *, q: str | None = None, warehouse_id: int | None = None,
+           category: str | None = None, low_stock: bool = False,
+           sort: str = "on_hand", sort_dir: str = "desc",
+           limit: int = 200, offset: int = 0) -> dict:
+    """Per-product stock levels from the lot ledger — current on-hand and value,
+    with search (name/code), warehouse and category filters, a low-stock filter
+    (on-hand at or below the product's reorder level), and sorting."""
+    agg = select(
+        StockLot.product_id.label("pid"),
+        func.coalesce(func.sum(StockLot.quantity_remaining), 0).label("on_hand"),
+        func.coalesce(func.sum(StockLot.quantity_remaining * StockLot.unit_cost), 0).label("value"),
+    ).where(StockLot.quantity_remaining > 0)
+    if warehouse_id is not None:
+        agg = agg.where(StockLot.warehouse_id == warehouse_id)
+    agg = agg.group_by(StockLot.product_id).subquery()
+
+    on_hand = func.coalesce(agg.c.on_hand, 0)
+    value = func.coalesce(agg.c.value, 0.0)
+    stmt = select(Product, on_hand.label("on_hand"), value.label("value")).outerjoin(
+        agg, agg.c.pid == Product.id
+    ).where(Product.deleted_at.is_(None))
+    if q:
+        like = f"%{q}%"
+        stmt = stmt.where(or_(Product.name.ilike(like), Product.code.ilike(like)))
+    if category:
+        stmt = stmt.where(Product.category == category)
+    if warehouse_id is not None:
+        stmt = stmt.where(agg.c.pid.is_not(None))  # only products held in that warehouse
+    if low_stock:
+        stmt = stmt.where(Product.reorder_level.is_not(None), on_hand <= Product.reorder_level)
+
+    total = db.scalar(select(func.count()).select_from(stmt.subquery()))
+
+    sort_map = {"on_hand": on_hand, "value": value, "name": Product.name,
+                "code": Product.code, "reorder_level": Product.reorder_level}
+    col = sort_map.get(sort, on_hand)
+    stmt = stmt.order_by(col.desc() if sort_dir == "desc" else col.asc())
+
+    rows = db.execute(stmt.limit(limit).offset(offset)).all()
+    items = []
+    for prod, oh, val in rows:
+        oh = int(oh or 0)
+        rl = prod.reorder_level
+        items.append({
+            "product_id": prod.id, "code": prod.code, "name": prod.name,
+            "category": prod.category, "on_hand": oh,
+            "value": round(float(val or 0), 2),
+            "reorder_level": rl, "low": rl is not None and oh <= rl,
+        })
+
+    cats = [c for (c,) in db.execute(
+        select(Product.category).where(Product.category.is_not(None),
+                                       Product.deleted_at.is_(None))
+        .distinct().order_by(Product.category)
+    ).all()]
+    return {"items": items, "total": int(total or 0), "limit": limit, "offset": offset,
+            "sort": sort, "sort_dir": sort_dir, "categories": cats}
+
+
+def warehouse_summary(db: Session, warehouse_id: int) -> dict | None:
+    """A warehouse at a glance: value of goods stored, quantity available, the
+    products held there, and the most recent stock movements in and out."""
+    wh = db.get(Warehouse, warehouse_id)
+    if wh is None or getattr(wh, "deleted_at", None) is not None:
+        return None
+
+    rows = db.execute(
+        select(StockLot.product_id, Product.code, Product.name,
+               func.coalesce(func.sum(StockLot.quantity_remaining), 0),
+               func.coalesce(func.sum(StockLot.quantity_remaining * StockLot.unit_cost), 0))
+        .join(Product, Product.id == StockLot.product_id, isouter=True)
+        .where(StockLot.warehouse_id == warehouse_id, StockLot.quantity_remaining > 0)
+        .group_by(StockLot.product_id, Product.code, Product.name)
+        .order_by(func.sum(StockLot.quantity_remaining * StockLot.unit_cost).desc())
+    ).all()
+    products = [{"product_id": pid, "code": code, "name": name,
+                "on_hand": int(q or 0), "value": round(float(v or 0), 2)}
+               for pid, code, name, q, v in rows]
+    total_units = sum(p["on_hand"] for p in products)
+    total_value = round(sum(p["value"] for p in products), 2)
+    open_lots = db.scalar(
+        select(func.count()).select_from(StockLot)
+        .where(StockLot.warehouse_id == warehouse_id, StockLot.quantity_remaining > 0)
+    ) or 0
+
+    mv = db.execute(
+        select(StockMovement, Product.name)
+        .join(Product, Product.id == StockMovement.product_id, isouter=True)
+        .where(StockMovement.warehouse_id == warehouse_id)
+        .order_by(StockMovement.id.desc()).limit(20)
+    ).all()
+    movements = [{"type": m.movement_type, "product": pname,
+                  "quantity": int(m.quantity or 0), "note": m.note,
+                  "occurred_at": m.occurred_at.isoformat() if m.occurred_at else None}
+                 for m, pname in mv]
+
+    return {"warehouse_id": wh.id, "code": wh.code, "name": wh.name,
+            "location": wh.location, "type": wh.type, "status": wh.status,
+            "total_value": total_value, "total_units": int(total_units),
+            "product_count": len(products), "open_lot_count": int(open_lots),
+            "products": products, "recent_movements": movements, "provenance": "REAL"}
 
 
 def on_hand_by_warehouse(db: Session, product_id: int) -> list[dict]:

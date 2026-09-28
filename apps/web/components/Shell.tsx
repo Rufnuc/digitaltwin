@@ -4,7 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import React, { useEffect, useState } from "react";
 import { api, clearSession, getRole, getToken, setSession } from "@/lib/api";
 import { NotificationBell } from "@/components/NotificationBell";
-import { type Role, roleAtLeast } from "@/lib/roles";
+import { type Role, roleAtLeast, isSalesgirl, SALESGIRL_PAGES } from "@/lib/roles";
 import { getStoredTheme, resolveDark, setTheme } from "@/lib/theme";
 
 // minRole gates a nav item to the user's tier (undefined = everyone). Items are
@@ -130,9 +130,15 @@ export function Shell({ children }: { children: React.ReactNode }) {
   if (!ready) return <div className="p-8 text-sm text-muted">Loading…</div>;
 
   // Filter each section's items by role, then drop any section left empty.
+  // SALESGIRL is a front-desk role: it sees only an explicit allowlist of pages.
+  const sales = isSalesgirl(role);
   const nav = NAV.map((section) => ({
     ...section,
-    items: section.items.filter((item) => !item.minRole || roleAtLeast(role, item.minRole)),
+    items: section.items.filter((item) =>
+      sales
+        ? SALESGIRL_PAGES.has(item.href)
+        : !item.minRole || roleAtLeast(role, item.minRole),
+    ),
   })).filter((section) => section.items.length > 0);
 
   return (

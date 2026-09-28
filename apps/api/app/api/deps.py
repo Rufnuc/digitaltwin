@@ -38,11 +38,18 @@ def get_current_user(
     return user
 
 
-def require_role(minimum: Role):
-    """Dependency factory enforcing a minimum role (hierarchical)."""
+def require_role(minimum: Role, *, allow: tuple[Role, ...] = ()):
+    """Dependency factory enforcing a minimum role (hierarchical).
+
+    ``allow`` whitelists specific roles that don't meet the hierarchy but are
+    permitted on this endpoint anyway — used to grant the restricted SALESGIRL
+    role the handful of actions it needs (invoices, waybills, customer adds/payments)
+    without lifting it above STAFF everywhere.
+    """
+    allowed = {r.value for r in allow}
 
     def _guard(user: User = Depends(get_current_user)) -> User:
-        if not role_at_least(user.role, minimum):
+        if not (role_at_least(user.role, minimum) or user.role in allowed):
             raise HTTPException(
                 status.HTTP_403_FORBIDDEN,
                 f"Requires role {minimum.value} or higher (you are {user.role}).",

@@ -119,7 +119,8 @@ def get_invoice(
     names = _user_names(db)
     cust = db.get(Customer, obj.customer_id) if obj.customer_id else None
     d = InvoiceOut.model_validate(obj).model_dump(mode="json")
-    from app.services import receivables
+    from app.services import receivables, waybills
+    wb_items = waybills.list_waybills(db, invoice_id=invoice_id)["items"]
     d.update({
         "customer_name": cust.name if cust else None,
         "created_by": names.get(obj.created_by_user_id),
@@ -132,6 +133,10 @@ def get_invoice(
         # Payment history with who recorded each (accounts-receivable traceability).
         "balance": round(float(obj.total or 0) - float(obj.amount_paid or 0), 2),
         "payments": receivables.list_payments(db, invoice_id),
+        # Waybills raised against this invoice, so dispatch status is visible here.
+        "waybills": [{"id": w["id"], "waybill_number": w["waybill_number"],
+                      "status": w["status"], "dispatched_at": w.get("dispatched_at")}
+                     for w in wb_items],
     })
     return d
 
@@ -187,7 +192,7 @@ def update_invoice(
     invoice_id: int,
     payload: InvoicePatch,
     db: Session = Depends(db_session),
-    user: User = Depends(require_role(Role.MANAGER)),
+    user: User = Depends(require_role(Role.MANAGER, allow=(Role.SALESGIRL,))),
 ) -> dict:
     """Edit an invoice — header fields and/or its full line items. Every edit keeps
     the prior state as an immutable version, so nothing is ever lost."""
@@ -271,7 +276,7 @@ def update_invoice(
 def create_invoice(
     payload: InvoiceCreate,
     db: Session = Depends(db_session),
-    user: User = Depends(require_role(Role.STAFF)),
+    user: User = Depends(require_role(Role.STAFF, allow=(Role.SALESGIRL,))),
     idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
 ) -> Invoice:
     # Safe-selling-path guard (B3): this path records an invoice but does NOT move
@@ -388,7 +393,7 @@ class SellRequest(BaseModel):
 def sell(
     payload: SellRequest,
     db: Session = Depends(db_session),
-    user: User = Depends(require_role(Role.STAFF)),
+    user: User = Depends(require_role(Role.STAFF, allow=(Role.SALESGIRL,))),
     idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
 ) -> dict:
     """Create an invoice and fulfil it from a warehouse's stock, decrementing lots

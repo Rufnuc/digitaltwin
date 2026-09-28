@@ -38,6 +38,16 @@ class TimestampMixin:
     )
 
 
+class SoftDeleteMixin:
+    """Records are never physically destroyed: deleting stamps ``deleted_at`` so
+    history/financials stay intact, while the app hides the row from normal views.
+    A NULL ``deleted_at`` means 'live'."""
+
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+
+
 class ProvenanceMixin:
     """Epistemic metadata. Attached to imported/extracted business records.
 

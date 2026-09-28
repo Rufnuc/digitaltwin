@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -65,6 +66,16 @@ def login(payload: LoginRequest, db: Session = Depends(db_session)) -> Token:
 
     if not user.is_active:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "User is inactive")
+
+    # Device binding: a device-locked account (and any SALESGIRL) may only sign in
+    # from an approved device. A new device is recorded PENDING and refused here.
+    from app.services import devices
+    try:
+        devices.check_login_device(db, user, payload.device_id, payload.device_label)
+    except devices.DeviceError as e:
+        audit.record(db, action=AuditAction.LOGIN, user_id=user.id,
+                     summary=f"device-blocked login ({e.code}): {user.email}")
+        raise HTTPException(status.HTTP_403_FORBIDDEN, e.message) from None
 
     # Success: clear any failure state.
     if user.failed_login_count or user.lockout_until:
@@ -185,8 +196,63 @@ def update_user(
                 "You cannot reset the password of a user at your level or higher",
             )
         user.hashed_password = hash_password(changes["password"])
+    if "device_locked" in changes and changes["device_locked"] is not None:
+        user.device_locked = changes["device_locked"]
     db.commit()
     db.refresh(user)
     audit.record(db, action=AuditAction.UPDATE, user_id=admin.id, entity_type="user",
                  entity_id=user.id, summary=f"updated user {user.email}")
     return user
+
+
+# ---- Device binding management (admin/owner) ----
+
+@router.get("/auth/users/{user_id}/devices")
+def user_devices(
+    user_id: int,
+    db: Session = Depends(db_session),
+    _: User = Depends(require_role(Role.ADMIN)),
+) -> dict:
+    from app.services import devices
+    if db.get(User, user_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+    return {"items": devices.list_devices(db, user_id)}
+
+
+class DeviceStatusIn(BaseModel):
+    status: str  # APPROVED | BLOCKED | PENDING
+
+
+@router.patch("/auth/users/{user_id}/devices/{device_pk}")
+def set_device_status(
+    user_id: int,
+    device_pk: int,
+    payload: DeviceStatusIn,
+    db: Session = Depends(db_session),
+    admin: User = Depends(require_role(Role.ADMIN)),
+) -> dict:
+    from app.services import devices
+    r = devices.set_status(db, user_id, device_pk, payload.status, admin.id)
+    if r is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Device not found")
+    if "error" in r:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, r["error"])
+    audit.record(db, action=AuditAction.UPDATE, user_id=admin.id, entity_type="user_device",
+                 entity_id=device_pk, summary=f"device {payload.status} for user {user_id}")
+    return r
+
+
+@router.delete("/auth/users/{user_id}/devices/{device_pk}",
+               status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+def remove_device(
+    user_id: int,
+    device_pk: int,
+    db: Session = Depends(db_session),
+    admin: User = Depends(require_role(Role.ADMIN)),
+) -> Response:
+    from app.services import devices
+    if not devices.delete_device(db, user_id, device_pk):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Device not found")
+    audit.record(db, action=AuditAction.DELETE, user_id=admin.id, entity_type="user_device",
+                 entity_id=device_pk, summary=f"removed device for user {user_id}")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

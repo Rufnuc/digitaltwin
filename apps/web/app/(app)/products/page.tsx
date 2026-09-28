@@ -8,10 +8,13 @@ import {
   getRole,
   imageSrc,
   type ProductImage as PImage,
+  type ProductAnalytics,
   type ProductHistory as ProductHistoryType,
 } from "@/lib/api";
-import { money2 } from "@/lib/format";
+import { money2, num } from "@/lib/format";
 import { roleAtLeast } from "@/lib/roles";
+import { Modal } from "@/components/Modal";
+import { MiniLineChart } from "@/components/MiniLineChart";
 
 interface Product {
   id: number;
@@ -342,6 +345,8 @@ function ProductModal({
               )}
             </div>
 
+            <ProductInsightsButton productId={id} name={p.name} />
+
             <ProductHistorySection productId={id} />
 
             {editing && (
@@ -367,6 +372,78 @@ function ProductModal({
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+// A button in the product modal that opens a roomy insights popup.
+function ProductInsightsButton({ productId, name }: { productId: number; name: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mt-4 border-t border-line pt-3">
+      <button onClick={() => setOpen(true)}
+        className="w-full rounded border border-line px-3 py-2 text-sm font-medium hover:bg-wash">
+        📊 Product insights &amp; charts
+      </button>
+      {open && <ProductInsightsModal productId={productId} name={name} onClose={() => setOpen(false)} />}
+    </div>
+  );
+}
+
+// A product's own charts: current stock/value/revenue, and units bought vs sold
+// over the last 12 months — all from the lot ledger and invoices.
+function ProductInsightsModal({ productId, name, onClose }: {
+  productId: number; name: string; onClose: () => void;
+}) {
+  const [data, setData] = useState<ProductAnalytics | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    api.productAnalytics(productId)
+      .then((d) => alive && setData(d))
+      .catch((e) => alive && setError(e instanceof Error ? e.message : "Could not load insights"));
+    return () => { alive = false; };
+  }, [productId]);
+
+  return (
+    <Modal title={`${name || "Product"} · insights`} size="xl" onClose={onClose}>
+      {error && <div className="text-sm text-red-700">{error}</div>}
+      {!data && !error && <div className="text-sm text-muted">Loading…</div>}
+      {data && (
+        <>
+          <div className="mb-4 grid grid-cols-2 gap-3 text-center sm:grid-cols-4">
+            <PStat label="On hand" value={num(data.on_hand)}
+              tone={data.reorder_level != null && data.on_hand <= data.reorder_level ? "bad" : undefined} />
+            <PStat label="Total sold" value={num(data.total_sold)} />
+            <PStat label="Revenue" value={money2(data.revenue)} />
+            <PStat label="Stock value" value={money2(data.stock_value)} />
+          </div>
+
+          <div className="rounded-lg border border-line p-3">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-xs font-medium uppercase tracking-wide text-muted">Units bought vs sold — last 12 months</span>
+              <span className="text-[11px] text-muted">received {num(data.total_received)} · sold {num(data.total_sold)}</span>
+            </div>
+            <MiniLineChart
+              xLabels={data.monthly.map((m) => m.month)}
+              series={[
+                { label: "Bought", color: "#2563eb", points: data.monthly.map((m) => m.received) },
+                { label: "Sold", color: "#16a34a", points: data.monthly.map((m) => m.sold) },
+              ]}
+            />
+          </div>
+        </>
+      )}
+    </Modal>
+  );
+}
+
+function PStat({ label, value, tone }: { label: string; value: string; tone?: "bad" }) {
+  return (
+    <div className="rounded border border-line p-2">
+      <div className="text-[10px] uppercase tracking-wide text-muted">{label}</div>
+      <div className={`text-sm font-semibold ${tone === "bad" ? "text-red-700 dark:text-red-300" : ""}`}>{value}</div>
     </div>
   );
 }

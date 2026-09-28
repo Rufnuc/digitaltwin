@@ -6,11 +6,11 @@ from sqlalchemy import Date, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.enums import CustomerType, EntityStatus
-from app.db.base import Base, ProvenanceMixin, TimestampMixin
+from app.db.base import Base, ProvenanceMixin, SoftDeleteMixin, TimestampMixin
 from app.models.organization import MONEY
 
 
-class Customer(Base, TimestampMixin, ProvenanceMixin):
+class Customer(Base, TimestampMixin, ProvenanceMixin, SoftDeleteMixin):
     __tablename__ = "customers"
 
     id: Mapped[int] = mapped_column(primary_key=True)

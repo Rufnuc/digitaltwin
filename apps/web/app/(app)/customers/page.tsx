@@ -2,8 +2,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { PageHeader } from "@/components/Shell";
 import { ResourceTable, type Column, type FilterSpec, type FormField } from "@/components/DataTable";
-import { api, newIdempotencyKey } from "@/lib/api";
+import { api, getRole, newIdempotencyKey, type CustomerAnalytics } from "@/lib/api";
 import { money } from "@/lib/format";
+import { isSalesgirl } from "@/lib/roles";
+import { Modal } from "@/components/Modal";
+import { MiniLineChart } from "@/components/MiniLineChart";
 
 const STATUS = ["ACTIVE", "INACTIVE", "PROSPECT", "ARCHIVED"];
 const TYPES = ["RETAIL", "WHOLESALE", "TRADE", "OTHER"];
@@ -48,17 +51,33 @@ const filters: FilterSpec[] = [
 ];
 
 export default function CustomersPage() {
+  const sg = isSalesgirl(getRole());
+  // Front desk: no lifetime-revenue column (money), and the list stays hidden
+  // until they search. They can add and edit, but not delete.
+  const cols = sg ? columns.filter((c) => c.key !== "lifetime_revenue") : columns;
   return (
     <div>
-      <PageHeader title="Customers" subtitle="Customer master records. Click a customer to see what they owe and their invoices." />
+      <PageHeader
+        title="Customers"
+        subtitle={sg
+          ? "Search for a customer to see their invoices, or add a new one."
+          : "Customer master records. Click a customer to see what they owe and their invoices."}
+      />
       <ResourceTable<Row>
         resource="customers"
-        columns={columns}
-        filters={filters}
+        columns={cols}
+        filters={sg ? [] : filters}
         formFields={formFields}
         entityLabel="customer"
+        writeAllow={["SALESGIRL"]}
+        requireSearch={sg}
         viewable
-        renderExtra={(row) => <CustomerReceivable customerId={Number(row.id)} />}
+        renderExtra={(row) => (
+          <>
+            {!sg && <CustomerInsightsButton customerId={Number(row.id)} name={String(row.name ?? "")} />}
+            <CustomerReceivable customerId={Number(row.id)} />
+          </>
+        )}
       />
     </div>
   );
@@ -80,6 +99,106 @@ interface CustInvoice {
   total: number;
   balance: number;
   payment_status: string;
+}
+
+const dayShort = (iso: string | null) =>
+  iso ? new Date(iso).toLocaleDateString("en-NG", { dateStyle: "medium" }) : "—";
+
+// A button in the customer's view drawer that opens a roomy insights popup.
+function CustomerInsightsButton({ customerId, name }: { customerId: number; name: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="border-t border-line pt-3">
+      <button onClick={() => setOpen(true)}
+        className="w-full rounded border border-line px-3 py-2 text-sm font-medium hover:bg-wash">
+        📊 Sales insights &amp; history
+      </button>
+      {open && <CustomerInsightsModal customerId={customerId} name={name} onClose={() => setOpen(false)} />}
+    </div>
+  );
+}
+
+// Sales charts + behaviour signals (returning, cadence, recency, top products)
+// for one customer — all computed from their real invoices.
+function CustomerInsightsModal({ customerId, name, onClose }: {
+  customerId: number; name: string; onClose: () => void;
+}) {
+  const [data, setData] = useState<CustomerAnalytics | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.customerAnalytics(customerId)
+      .then(setData)
+      .catch((e) => setError(e instanceof Error ? e.message : "Could not load insights"));
+  }, [customerId]);
+
+  return (
+    <Modal title={`${name || "Customer"} · insights`} size="xl" onClose={onClose}>
+      {error && <div className="text-sm text-red-700">{error}</div>}
+      {!data && !error && <div className="text-sm text-muted">Loading…</div>}
+      {data && data.orders === 0 && (
+        <div className="text-sm text-muted">No sales yet — insights appear once this customer has invoices.</div>
+      )}
+      {data && data.orders > 0 && (
+        <>
+          <div className="mb-4 grid grid-cols-2 gap-3 text-center sm:grid-cols-4">
+            <Stat label="Lifetime sales" value={naira(data.revenue)} />
+            <Stat label="Orders" value={String(data.orders)} />
+            <Stat label="Avg order" value={naira(data.avg_order_value)} />
+            <Stat label="Status" value={data.returning ? "Returning" : "One-off"}
+              tone={data.returning ? "good" : "muted"} />
+          </div>
+
+          <div className="mb-4 flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted">
+            <span>First order {dayShort(data.first_order)}</span>
+            <span>Last order {dayShort(data.last_order)}</span>
+            {data.days_since_last != null && <span>{data.days_since_last}d since last</span>}
+            {data.avg_days_between_orders != null && <span>~{data.avg_days_between_orders}d between orders</span>}
+            <span>{data.orders_last_90d} in last 90 days</span>
+          </div>
+
+          <div className="mb-4 rounded-lg border border-line p-3">
+            <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted">Sales — last 12 months</div>
+            <MiniLineChart
+              xLabels={data.monthly.map((m) => m.month)}
+              formatValue={(v) => naira(v)}
+              series={[{ label: "Revenue", color: "#2563eb", points: data.monthly.map((m) => m.revenue) }]}
+            />
+          </div>
+
+          {data.top_products.length > 0 && (
+            <div>
+              <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted">Top products bought</div>
+              <div className="space-y-1">
+                {data.top_products.map((p) => (
+                  <div key={p.product_id ?? p.name} className="flex items-center gap-2 rounded border border-line px-3 py-1.5 text-sm">
+                    <span className="min-w-0 flex-1 truncate">
+                      <span className="font-medium">{p.name ?? "—"}</span>
+                      {p.code ? <span className="text-muted"> · {p.code}</span> : null}
+                    </span>
+                    <span className="shrink-0 text-right text-muted">
+                      {Math.round(p.quantity).toLocaleString("en-NG")} units · {naira(p.revenue)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </Modal>
+  );
+}
+
+function Stat({ label, value, tone }: { label: string; value: string; tone?: "good" | "muted" }) {
+  return (
+    <div className="rounded border border-line p-2">
+      <div className="text-[10px] uppercase tracking-wide text-muted">{label}</div>
+      <div className={`text-sm font-semibold ${
+        tone === "good" ? "text-green-700 dark:text-green-300" : ""
+      }`}>{value}</div>
+    </div>
+  );
 }
 
 // The receivables section inside a customer's view modal: what they owe overall

@@ -1,13 +1,16 @@
 "use client";
 import { useEffect, useState } from "react";
-import { api, getRole, type DataStats, type UserRow } from "@/lib/api";
+import { api, getRole, type DataStats, type UserDevice, type UserRow } from "@/lib/api";
 import { PageHeader } from "@/components/Shell";
 import { Card, ResponsiveTable } from "@/components/ui";
+import { Modal } from "@/components/Modal";
 import { num } from "@/lib/format";
 import { roleAtLeast } from "@/lib/roles";
 import { getStoredTheme, setTheme, type Theme } from "@/lib/theme";
 
-const ROLES = ["VIEWER", "STAFF", "ANALYST", "MANAGER", "OWNER", "ADMIN"];
+// Assignable roles. ANALYST/VIEWER are retired (kept in the backend only for old
+// records) and are no longer offered; SALESGIRL is the restricted front-desk role.
+const ROLES = ["SALESGIRL", "STAFF", "MANAGER", "OWNER", "ADMIN"];
 
 export default function SettingsPage() {
   const [theme, setThemeState] = useState<Theme>("system");
@@ -144,6 +147,7 @@ function UsersPanel() {
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState({ email: "", full_name: "", password: "", role: "STAFF" });
   const [busy, setBusy] = useState(false);
+  const [deviceUser, setDeviceUser] = useState<UserRow | null>(null);
 
   const load = () => api.listUsers().then(setUsers).catch((e) => setError(e.message));
   useEffect(() => {
@@ -200,7 +204,9 @@ function UsersPanel() {
             onChange={(e) => change(u.id, { role: e.target.value })}
             className="rounded border border-line bg-paper px-2 py-1 text-xs"
           >
-            {ROLES.map((r) => (
+            {/* Include the user's current role even if it's a retired one (ANALYST/
+                VIEWER), so their row displays correctly until reassigned. */}
+            {[...new Set([u.role, ...ROLES])].map((r) => (
               <option key={r} value={r}>
                 {r}
               </option>
@@ -223,6 +229,12 @@ function UsersPanel() {
             >
               Reset password
             </button>
+            <button
+              onClick={() => setDeviceUser(u)}
+              className="rounded border border-line px-2 py-1 text-xs hover:bg-wash"
+            >
+              Devices
+            </button>
             <a
               href={`/activity?user=${u.id}`}
               className="rounded border border-line px-2 py-1 text-xs hover:bg-wash"
@@ -232,6 +244,14 @@ function UsersPanel() {
           </span>,
         ])}
       />
+
+      {deviceUser && (
+        <UserDevicesModal
+          user={deviceUser}
+          onClose={() => setDeviceUser(null)}
+          onLockChange={(locked) => change(deviceUser.id, { device_locked: locked })}
+        />
+      )}
 
       <div className="mt-3 flex flex-wrap items-end gap-2">
         <Inp label="Full name" v={form.full_name} on={(v) => setForm({ ...form, full_name: v })} />
@@ -260,6 +280,89 @@ function UsersPanel() {
         </button>
       </div>
     </Card>
+  );
+}
+
+const DEV_CHIP: Record<string, string> = {
+  APPROVED: "bg-green-500/15 text-green-700 dark:text-green-300",
+  PENDING: "bg-yellow-500/15 text-yellow-700 dark:text-yellow-300",
+  BLOCKED: "bg-red-500/15 text-red-700 dark:text-red-300",
+};
+const stamp = (iso: string | null) =>
+  iso ? new Date(iso).toLocaleString("en-NG", { dateStyle: "medium", timeStyle: "short" }) : "—";
+
+// Approve / block / remove the devices a user may sign in from, and toggle whether
+// this account is device-locked at all. SALESGIRL is always locked.
+function UserDevicesModal({ user, onClose, onLockChange }: {
+  user: UserRow; onClose: () => void; onLockChange: (locked: boolean) => void;
+}) {
+  const [devices, setDevices] = useState<UserDevice[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [locked, setLocked] = useState(!!user.device_locked);
+  const alwaysLocked = user.role === "SALESGIRL";
+
+  const load = () =>
+    api.userDevices(user.id).then((r) => setDevices(r.items))
+      .catch((e) => setError(e instanceof Error ? e.message : "Could not load devices"));
+  useEffect(() => { load(); }, [user.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function act(fn: () => Promise<unknown>) {
+    try { await fn(); load(); }
+    catch (e) { setError(e instanceof Error ? e.message : "Action failed"); }
+  }
+
+  return (
+    <Modal title={`Devices · ${user.full_name || user.email}`} size="lg" onClose={onClose}>
+      <label className="mb-3 flex items-center gap-2 rounded border border-line p-2.5 text-sm">
+        <input type="checkbox" checked={alwaysLocked || locked} disabled={alwaysLocked}
+          onChange={(e) => { setLocked(e.target.checked); onLockChange(e.target.checked); }} />
+        <span>
+          Require an approved device to sign in
+          {alwaysLocked && <span className="text-muted"> · always on for Salesgirl</span>}
+        </span>
+      </label>
+
+      {error && <div className="mb-2 text-sm text-red-700">{error}</div>}
+      {!devices && !error && <div className="text-sm text-muted">Loading…</div>}
+      {devices && devices.length === 0 && (
+        <div className="rounded border border-dashed border-line px-3 py-6 text-center text-sm text-muted">
+          No devices yet. The user’s first sign-in appears here as “pending” for you to approve.
+        </div>
+      )}
+      {devices && devices.length > 0 && (
+        <div className="space-y-1.5">
+          {devices.map((d) => (
+            <div key={d.id} className="flex items-center gap-2 rounded border border-line px-3 py-2 text-sm">
+              <span className="min-w-0 flex-1">
+                <span className="font-medium">{d.label || "Unknown device"}</span>
+                <span className={`ml-2 rounded px-1.5 py-0.5 text-[10px] font-medium ${DEV_CHIP[d.status] ?? "bg-muted/15 text-muted"}`}>
+                  {d.status}
+                </span>
+                <span className="block text-xs text-muted">last seen {stamp(d.last_seen)}</span>
+              </span>
+              <span className="flex shrink-0 gap-1">
+                {d.status !== "APPROVED" && (
+                  <button onClick={() => act(() => api.setDeviceStatus(user.id, d.id, "APPROVED"))}
+                    className="rounded border border-green-500/40 px-2 py-1 text-xs text-green-700 hover:bg-green-500/10 dark:text-green-300">
+                    Approve
+                  </button>
+                )}
+                {d.status !== "BLOCKED" && (
+                  <button onClick={() => act(() => api.setDeviceStatus(user.id, d.id, "BLOCKED"))}
+                    className="rounded border border-red-500/40 px-2 py-1 text-xs text-red-700 hover:bg-red-500/10 dark:text-red-300">
+                    Block
+                  </button>
+                )}
+                <button onClick={() => act(() => api.removeDevice(user.id, d.id))}
+                  className="rounded border border-line px-2 py-1 text-xs hover:bg-wash">
+                  Remove
+                </button>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </Modal>
   );
 }
 

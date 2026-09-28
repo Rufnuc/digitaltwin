@@ -6,7 +6,7 @@ import { Card, ProvenanceBadge } from "@/components/ui";
 import { api, getRole, newIdempotencyKey, type InvoiceDetail, type InvoiceVersionRow } from "@/lib/api";
 import { printInvoice } from "@/lib/printInvoice";
 import { money2 } from "@/lib/format";
-import { roleAtLeast } from "@/lib/roles";
+import { roleAtLeast, isSalesgirl } from "@/lib/roles";
 
 interface Row {
   id: number;
@@ -45,7 +45,8 @@ export default function InvoicesPage() {
   const [error, setError] = useState<string | null>(null);
   const limit = 25;
 
-  const canSell = roleAtLeast(getRole(), "STAFF");
+  // Salesgirl does everything on invoices (front-desk sales), just logged.
+  const canSell = roleAtLeast(getRole(), "STAFF") || isSalesgirl(getRole());
 
   const load = useCallback(async () => {
     try {
@@ -260,7 +261,7 @@ function InvoiceDrawer({
   const [versions, setVersions] = useState<InvoiceVersionRow[]>([]);
   const [editing, setEditing] = useState(false);
   const [paying, setPaying] = useState(false);
-  const canEdit = roleAtLeast(getRole(), "MANAGER");
+  const canEdit = roleAtLeast(getRole(), "MANAGER") || isSalesgirl(getRole());
 
   const reload = useCallback(async () => {
     const [d, v] = await Promise.all([api.invoiceDetail(id), api.invoiceVersions(id)]);
@@ -369,6 +370,28 @@ function InvoiceDrawer({
               )}
             </div>
 
+            <div className="mb-4 rounded border border-line p-2.5 text-sm">
+              <div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted">Dispatch</div>
+              {(inv.waybills ?? []).length === 0 ? (
+                <div className="text-muted">No waybill raised for this invoice yet.</div>
+              ) : (
+                <div className="space-y-1">
+                  {(inv.waybills ?? []).map((w) => (
+                    <a key={w.id} href="/waybills"
+                      className="flex items-center gap-2 rounded border border-line px-2 py-1 hover:bg-wash">
+                      <span className="font-medium">{w.waybill_number}</span>
+                      <WaybillStatusChip status={w.status} />
+                      {w.dispatched_at && (
+                        <span className="ml-auto text-xs text-muted">
+                          dispatched {new Date(w.dispatched_at).toLocaleDateString("en-NG", { dateStyle: "medium" })}
+                        </span>
+                      )}
+                    </a>
+                  ))}
+                </div>
+              )}
+            </div>
+
             <div className="mb-4 flex flex-wrap gap-2">
               {canEdit && (
                 <button
@@ -388,14 +411,14 @@ function InvoiceDrawer({
                 onClick={async () => {
                   try {
                     await api.createWaybill({ invoice_id: inv.id });
-                    window.location.href = "/waybills";
+                    await reload();
                   } catch (e) {
                     alert(e instanceof Error ? e.message : "Could not create waybill");
                   }
                 }}
                 className="rounded border border-line px-3 py-1.5 text-sm hover:bg-wash"
               >
-                Create waybill
+                {(inv.waybills ?? []).length > 0 ? "Create another waybill" : "Create waybill"}
               </button>
             </div>
 
@@ -844,5 +867,19 @@ function VersionModal({
         </table>
       </div>
     </div>
+  );
+}
+
+const WB_CHIP: Record<string, string> = {
+  PENDING: "bg-yellow-500/15 text-yellow-700 dark:text-yellow-300",
+  DISPATCHED: "bg-blue-500/15 text-blue-700 dark:text-blue-300",
+  DELIVERED: "bg-green-500/15 text-green-700 dark:text-green-300",
+  CANCELLED: "bg-red-500/15 text-red-700 dark:text-red-300",
+};
+function WaybillStatusChip({ status }: { status: string }) {
+  return (
+    <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${WB_CHIP[status] ?? "bg-muted/15 text-muted"}`}>
+      {status}
+    </span>
   );
 }

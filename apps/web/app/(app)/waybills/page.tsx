@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
-import { api, type Waybill } from "@/lib/api";
+import { api, type AuditEvent, type Waybill } from "@/lib/api";
+import { Modal } from "@/components/Modal";
 import { PageHeader } from "@/components/Shell";
 import { Card } from "@/components/ui";
 
@@ -169,6 +170,8 @@ function WaybillDrawer({ waybill, onClose, onSaved }: {
   const [w, setW] = useState(waybill);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [logKey, setLogKey] = useState(0);
+  const [showLog, setShowLog] = useState(false);
   const set = (k: keyof Waybill) => (v: string) => setW({ ...w, [k]: v });
 
   async function save(extra: Partial<Waybill> = {}) {
@@ -184,6 +187,7 @@ function WaybillDrawer({ waybill, onClose, onSaved }: {
       });
       setW(updated);
       onSaved(updated);
+      setLogKey((k) => k + 1);  // refresh the change log with the new version
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Could not save");
     } finally {
@@ -265,6 +269,10 @@ function WaybillDrawer({ waybill, onClose, onSaved }: {
             className="rounded border border-line px-3 py-1.5 text-sm hover:bg-wash">
             Print
           </button>
+          <button onClick={() => setShowLog(true)}
+            className="rounded border border-line px-3 py-1.5 text-sm hover:bg-wash">
+            🕘 Change log
+          </button>
           {w.status !== "CANCELLED" && w.status !== "DELIVERED" && (
             <button onClick={() => save({ status: "CANCELLED" })} disabled={busy}
               className="ml-auto rounded border border-red-500/40 px-3 py-1.5 text-sm text-red-700 hover:bg-red-500/10">
@@ -272,8 +280,81 @@ function WaybillDrawer({ waybill, onClose, onSaved }: {
             </button>
           )}
         </div>
+
+        {showLog && (
+          <WaybillChangeLogModal waybillId={w.id} number={w.waybill_number}
+            reloadKey={logKey} onClose={() => setShowLog(false)} />
+        )}
       </div>
     </div>
+  );
+}
+
+const FIELD_LABEL: Record<string, string> = {
+  apprentice_name: "Apprentice", transport_company: "Transport company",
+  driver_phone: "Driver phone", vehicle_info: "Vehicle", station: "Station",
+  receiver_name: "Picked up by", receiver_phone: "Collector phone",
+  destination: "Destination", notes: "Special instructions", status: "Status",
+  dispatched_at: "Dispatched at",
+};
+const prettyField = (k: string) => FIELD_LABEL[k] ?? k.replace(/_/g, " ");
+const prettyVal = (v: unknown) =>
+  v === null || v === undefined || v === "" ? "—" : String(v);
+
+// Every change to this waybill: what changed (old → new), who made it, and when.
+function WaybillChangeLogModal({ waybillId, number, reloadKey, onClose }: {
+  waybillId: number; number: string; reloadKey: number; onClose: () => void;
+}) {
+  const [events, setEvents] = useState<AuditEvent[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    api.entityHistory("waybills", waybillId)
+      .then((r) => alive && setEvents(r.events))
+      .catch((e) => alive && setError(e instanceof Error ? e.message : "Could not load history"));
+    return () => { alive = false; };
+  }, [waybillId, reloadKey]);
+
+  return (
+    <Modal title={`${number} · change log`} size="lg" onClose={onClose}>
+      {error && <div className="text-sm text-red-700">{error}</div>}
+      {!events && !error && <div className="text-sm text-muted">Loading…</div>}
+      {events && events.length === 0 && (
+        <div className="text-sm text-muted">No changes recorded yet.</div>
+      )}
+      {events && events.length > 0 && (
+        <ol className="space-y-2">
+          {events.map((ev, i) => {
+            const changed = ev.action === "UPDATE" && ev.new_value
+              ? Object.keys(ev.new_value)
+              : [];
+            return (
+              <li key={ev.id} className="rounded-lg border border-line px-3 py-2 text-sm">
+                <div className="flex items-center justify-between">
+                  <span>
+                    <span className="mr-1.5 rounded bg-muted/15 px-1.5 py-0.5 text-[10px] text-muted">v{i + 1}</span>
+                    <span className="font-medium">{ev.action === "CREATE" ? "Created" : ev.action === "UPDATE" ? "Updated" : ev.action}</span>
+                    <span className="text-muted"> · {ev.user_name ?? "system"}</span>
+                  </span>
+                  <span className="shrink-0 text-xs text-muted">{when(ev.at)}</span>
+                </div>
+                {changed.length > 0 && (
+                  <div className="mt-1.5 space-y-0.5 text-xs">
+                    {changed.map((k) => (
+                      <div key={k} className="text-muted">
+                        <span className="font-medium text-ink">{prettyField(k)}:</span>{" "}
+                        {prettyVal(ev.old_value?.[k])} → {prettyVal(ev.new_value?.[k])}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </li>
+            );
+          })}
+        </ol>
+      )}
+    </Modal>
   );
 }
 
