@@ -135,6 +135,37 @@ def test_void_invoice_returns_stock_and_neutralises_totals(client, auth_headers,
     assert float(cust.lifetime_revenue or 0) == 0.0
 
 
+def test_void_paid_invoice_refunds_and_settles_at_zero(client, auth_headers, db, seeded):
+    stock.receive_stock(db, product_id=seeded["product"], warehouse_id=seeded["lagos"],
+                        quantity=20, unit_cost=1000)
+    r = client.post("/api/v1/invoices/sell", headers=auth_headers("MANAGER"), json={
+        "invoice_number": "INV-VOID-PAID", "invoice_date": "2026-03-01",
+        "warehouse_id": seeded["lagos"], "customer_id": seeded["customer"],
+        "lines": [{"product_id": seeded["product"], "quantity": 4, "unit_price": 1500}],
+    })
+    inv_id = r.json()["invoice"]["id"]
+    # Customer pays in full (6000).
+    pay = client.post(f"/api/v1/receivables/invoices/{inv_id}/payments",
+                      headers=auth_headers("MANAGER"), json={"amount": 6000, "method": "cash"})
+    assert pay.status_code in (200, 201), pay.text
+
+    # Voiding a paid invoice is allowed: it refunds the money and settles at zero.
+    v = client.post(f"/api/v1/invoices/{inv_id}/void", headers=auth_headers("MANAGER"),
+                    json={"reason": "customer cancelled"})
+    assert v.status_code == 200, v.text
+    body = v.json()
+    assert body["voided_at"] is not None
+    assert body["total"] == 0
+    assert float(body.get("amount_paid") or 0) == 0.0
+    assert float(body.get("balance") or 0) == 0.0  # no negative balance
+    assert "refunded" in body["void_reason"]
+    # The payment is recorded as voided (refunded), not confirmed.
+    assert all(p["status"] == "VOIDED" for p in body.get("payments", []))
+    # Stock returned.
+    db.expire_all()
+    assert stock.on_hand(db, seeded["product"], seeded["lagos"]) == 20
+
+
 def test_void_invoice_is_idempotent_guarded(client, auth_headers, db, seeded):
     stock.receive_stock(db, product_id=seeded["product"], warehouse_id=seeded["lagos"], quantity=5)
     r = client.post("/api/v1/invoices/sell", headers=auth_headers("MANAGER"), json={

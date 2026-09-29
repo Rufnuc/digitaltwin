@@ -283,12 +283,13 @@ def void_invoice(
     db: Session = Depends(db_session),
     user: User = Depends(require_role(Role.MANAGER)),
 ) -> dict:
-    """Cancel an invoice: return any stock it drew, and exclude it from revenue and
-    receivables. The invoice is kept (marked VOID) with its history intact — it is
-    never hard-deleted, so the record of what happened is preserved.
+    """Cancel an invoice: return any stock it drew, refund any money the customer had
+    paid, and exclude it from revenue and receivables. The invoice is kept (marked
+    VOID) with its history intact — it is never hard-deleted, so the record of what
+    happened is preserved.
 
-    Blocked when the invoice has confirmed payments: refund/void the payment first,
-    so money received is never silently disconnected from a cancelled sale.
+    Any confirmed payments are voided (i.e. refunded to the customer) as part of the
+    void, so the invoice settles at a clean zero balance — never a negative one.
     """
     from datetime import datetime, timezone
 
@@ -301,16 +302,17 @@ def void_invoice(
     if inv.voided_at is not None:
         raise HTTPException(status.HTTP_409_CONFLICT, "this invoice is already void")
 
-    has_payments = bool(db.scalar(
-        select(func.count()).select_from(Payment)
-        .where(Payment.invoice_id == inv.id, Payment.status == "CONFIRMED")
-    ))
-    if has_payments:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT,
-            "this invoice has confirmed payments — refund or void the payment before "
-            "voiding the invoice.",
-        )
+    # Refund the customer: mark every confirmed payment VOIDED so the money received is
+    # recorded as returned, not silently kept. This is what clears the balance to zero.
+    paid_before = float(inv.amount_paid or 0)
+    payments = db.scalars(
+        select(Payment).where(Payment.invoice_id == inv.id, Payment.status == "CONFIRMED")
+    ).all()
+    refunded = 0.0
+    for pay in payments:
+        pay.status = "VOIDED"
+        pay.note = f"refunded on void: {(pay.note + ' · ') if pay.note else ''}".strip(" ·") or None
+        refunded += float(pay.amount or 0)
 
     # Return the goods this sale drew back to their lots (no-op for a non-stock invoice).
     stock.reverse_sale(db, invoice_id=inv.id, user_id=user.id, commit=False)
@@ -321,10 +323,13 @@ def void_invoice(
     inv.lines.clear()
     inv.subtotal = inv.discount = inv.tax = inv.shipping = inv.total = 0
     inv.amount_paid = 0
-    inv.payment_status = "PAID"  # nothing owed on a voided invoice
+    inv.payment_status = "PAID"  # nothing owed on a voided invoice (balance = 0)
     inv.voided_at = datetime.now(timezone.utc)
     inv.voided_by_user_id = user.id
-    inv.void_reason = (payload.reason if payload else None) or "voided"
+    reason = (payload.reason if payload else None) or "voided"
+    inv.void_reason = (
+        f"{reason} (refunded {refunded:g} to customer)" if refunded > 0 else reason
+    )
     inv.updated_by_user_id = user.id
     inv.version_no += 1
     db.flush()
@@ -338,8 +343,10 @@ def void_invoice(
 
     audit.record(
         db, action=AuditAction.UPDATE, user_id=user.id, entity_type="invoice",
-        entity_id=inv.id, new_value={"voided": "true", "reason": inv.void_reason},
-        summary=f"invoice {inv.invoice_number} voided",
+        entity_id=inv.id,
+        new_value={"voided": "true", "reason": reason, "refunded": f"{refunded:g}"},
+        summary=f"invoice {inv.invoice_number} voided"
+                + (f"; refunded {refunded:g} to customer" if paid_before > 0 else ""),
     )
     return get_invoice(inv.id, db, user)
 
