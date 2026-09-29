@@ -13,6 +13,7 @@ from __future__ import annotations
 import html
 import logging
 import re
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from xml.etree import ElementTree
@@ -24,8 +25,13 @@ from app.services.market_intelligence.base import EconomicPoint, MarketNews
 logger = logging.getLogger("digitaltwin.market")
 
 COUNTRY = "NGA"
-_TIMEOUT = 15.0
-_HEADERS = {"User-Agent": "DigitalTwin/1.0"}
+# Keep per-request timeouts short and fetch sources concurrently: a refresh must
+# return quickly even when a source is slow or unreachable, so the request never
+# hangs long enough for the browser/host to drop it (which surfaces as a
+# "NetworkError" in the UI). A failing source is skipped, never fabricated.
+_TIMEOUT = 6.0
+_MAX_WORKERS = 8
+_HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; DigitalTwin/1.0; +https://urbanbuilds.com.ng)"}
 
 
 def _client() -> httpx.Client:
@@ -195,39 +201,56 @@ class LiveMarketProvider:
     def fetch_indicators(self) -> list[EconomicPoint]:
         points: list[EconomicPoint] = []
         with _client() as client:
-            for key, label, unit, code in WB_INDICATORS:
+            def wb(args):
+                key, label, unit, code = args
                 try:
-                    r = client.get(_wb_url(code))
-                    pt = parse_worldbank(key, label, unit, r.json())
-                    if pt:
-                        points.append(pt)
+                    return ("wb", parse_worldbank(key, label, unit, client.get(_wb_url(code)).json()))
                 except (httpx.HTTPError, ValueError) as e:
                     logger.warning("World Bank fetch failed for %s: %s", code, e)
-            try:
-                r = client.get(FX_URL)
-                points.extend(parse_fx(r.json()))
-            except (httpx.HTTPError, ValueError) as e:
-                logger.warning("FX fetch failed: %s", e)
+                    return ("wb", None)
+
+            def fx(_):
+                try:
+                    return ("fx", parse_fx(client.get(FX_URL).json()))
+                except (httpx.HTTPError, ValueError) as e:
+                    logger.warning("FX fetch failed: %s", e)
+                    return ("fx", [])
+
+            # All indicator sources fetched in parallel, bounded by _TIMEOUT each.
+            jobs = [(wb, a) for a in WB_INDICATORS] + [(fx, None)]
+            with ThreadPoolExecutor(max_workers=_MAX_WORKERS) as ex:
+                for kind, result in ex.map(lambda j: j[0](j[1]), jobs):
+                    if kind == "wb" and result is not None:
+                        points.append(result)
+                    elif kind == "fx":
+                        points.extend(result)
         return points
 
     def fetch_news(self) -> list[MarketNews]:
         seen: set[str] = set()
         items: list[MarketNews] = []
         with _client() as c:
-            for url in NEWS_URLS:  # local Nigerian feed + China/Asia trade feed
+            def fetch(url):
                 try:
-                    for n in parse_rss(c.get(url).text):
-                        # Drop off-topic headlines; dedup near-duplicates (same story
-                        # from different publishers share a normalised title).
-                        if (n.relevance or 0) < MIN_NEWS_RELEVANCE:
-                            continue
-                        key = _norm_title(n.title)
-                        if not key or key in seen:
-                            continue
-                        seen.add(key)
-                        items.append(n)
+                    return parse_rss(c.get(url).text)
                 except httpx.HTTPError as e:
                     logger.warning("News fetch failed for %s: %s", url, e)
+                    return []
+
+            # Both feeds in parallel; merge, filter and dedup afterwards.
+            with ThreadPoolExecutor(max_workers=_MAX_WORKERS) as ex:
+                batches = list(ex.map(fetch, NEWS_URLS))
+            for batch in batches:
+                for n in batch:
+                    # Drop off-topic headlines; dedup near-duplicates (same story
+                    # from different publishers share a normalised title).
+                    if (n.relevance or 0) < MIN_NEWS_RELEVANCE:
+                        continue
+                    key = _norm_title(n.title)
+                    if not key or key in seen:
+                        continue
+                    seen.add(key)
+                    items.append(n)
         # Best (most relevant) first.
         items.sort(key=lambda n: n.relevance or 0, reverse=True)
         return items

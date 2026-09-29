@@ -22,6 +22,14 @@ def refresh(
         result = ingest.refresh_market_data(db)
     except NotImplementedError as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from None
+    except Exception as e:  # noqa: BLE001 — never let a source failure hang/500 the request
+        import logging
+
+        logging.getLogger("digitaltwin.market").warning("market refresh failed: %s", e)
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            "Could not reach the market-data sources right now. Please try again shortly.",
+        ) from None
     audit.record(
         db, action=AuditAction.IMPORT, user_id=user.id, entity_type="market_data",
         summary=f"refresh: {result['indicators_ingested']} new indicators, "
