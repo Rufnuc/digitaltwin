@@ -435,6 +435,17 @@ def sell(
             f"invoice number {payload.invoice_number!r} already exists",
         ) from None
 
+    # Product names for each sold line, so the invoice records WHAT was sold even when
+    # the caller sends no free-text description (the sell UI sends none). Without this
+    # the printed invoice line just reads "Product".
+    from app.models.product import Product
+    product_ids = {ln.product_id for ln in payload.lines}
+    product_names = {
+        pid: name for pid, name in db.execute(
+            select(Product.id, Product.name).where(Product.id.in_(product_ids))
+        ).all()
+    } if product_ids else {}
+
     allocations: list[dict] = []
     try:
         for ln in payload.lines:
@@ -448,7 +459,8 @@ def sell(
             cost = sum((a["unit_cost"] or 0) * a["quantity"] for a in allocs)
             avg_cost = round(cost / qty, 2) if qty else None
             invoice.lines.append(InvoiceLine(
-                product_id=ln.product_id, original_description=ln.original_description,
+                product_id=ln.product_id,
+                original_description=ln.original_description or product_names.get(ln.product_id),
                 quantity=ln.quantity, unit_price=ln.unit_price,
                 line_total=round(ln.quantity * ln.unit_price, 2), unit_cost=avg_cost,
                 verification_status=VerificationStatus.VERIFIED.value,
