@@ -234,6 +234,40 @@ def transfer_stock(
             "to_warehouse_id": to_warehouse_id, "quantity": quantity, "lots": moved}
 
 
+def reverse_sale(db: Session, *, invoice_id: int, user_id: int | None = None,
+                 commit: bool = True) -> int:
+    """Return the stock a sale drew back to its lots (used when an invoice is voided).
+
+    For each SALE movement recorded against the invoice, the drawn units are added
+    back to the same lot (restoring it to IN_STOCK) and a compensating ADJUSTMENT
+    movement is written so the ledger stays balanced and the reversal is traceable.
+    Returns the number of units restored.
+    """
+    sales = list(db.scalars(
+        select(StockMovement).where(
+            StockMovement.invoice_id == invoice_id,
+            StockMovement.movement_type == MovementType.SALE,
+        )
+    ).all())
+    restored = 0
+    for mv in sales:
+        qty = int(-mv.quantity)  # SALE movements are stored negative
+        if qty <= 0:
+            continue
+        lot = db.get(StockLot, mv.lot_id)
+        if lot is None:
+            continue
+        lot.quantity_remaining += qty
+        lot.status = "IN_STOCK"
+        _record(db, lot, MovementType.ADJUSTMENT, qty, invoice_id=invoice_id,
+                customer_id=mv.customer_id, user_id=user_id,
+                note=f"void: returned {qty} to stock from invoice {invoice_id}")
+        restored += qty
+    if commit:
+        db.commit()
+    return restored
+
+
 def adjust_lot(
     db: Session, *, lot_id: int, delta: int, reason: str, user_id: int | None = None,
     commit: bool = True,

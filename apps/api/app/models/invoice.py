@@ -50,6 +50,15 @@ class Invoice(Base, TimestampMixin, ProvenanceMixin):
     updated_by_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     version_no: Mapped[int] = mapped_column(Integer, default=1)
 
+    # Void: a cancelled invoice is kept (never hard-deleted) for the audit trail, but
+    # its stock is returned and it is excluded from revenue/receivables. voided_at
+    # being set is the single source of truth for "this invoice is void".
+    voided_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), index=True, nullable=True
+    )
+    voided_by_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    void_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
     # Provenance links: where this invoice came from (paper scan / import batch).
     source_document_id: Mapped[int | None] = mapped_column(
         ForeignKey("documents.id"), nullable=True

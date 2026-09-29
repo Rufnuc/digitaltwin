@@ -22,6 +22,7 @@ interface Row {
   verification_status: string;
   created_by: string | null;
   version_no: number;
+  voided_at?: string | null;
 }
 
 const STATUSES = ["VERIFIED", "NEEDS_REVIEW", "AI_EXTRACTED", "UNVERIFIED"];
@@ -194,7 +195,16 @@ export default function InvoicesPage() {
                   onClick={() => setSelected(r.id)}
                   className="cursor-pointer border-t border-line tabular-nums hover:bg-wash"
                 >
-                  <td className="px-3 py-2 font-medium">{r.invoice_number}</td>
+                  <td className="px-3 py-2 font-medium">
+                    <span className={r.voided_at ? "text-muted line-through" : ""}>
+                      {r.invoice_number}
+                    </span>
+                    {r.voided_at && (
+                      <span className="ml-1.5 rounded bg-red-500/15 px-1 py-0.5 text-[10px] font-semibold uppercase text-red-700 dark:text-red-300">
+                        Void
+                      </span>
+                    )}
+                  </td>
                   <td className="px-3 py-2">{r.invoice_date}</td>
                   <td className="px-3 py-2 text-muted">{r.customer_name ?? "—"}</td>
                   <td className="px-3 py-2">{money2(r.total)}</td>
@@ -261,6 +271,7 @@ function InvoiceDrawer({
   const [versions, setVersions] = useState<InvoiceVersionRow[]>([]);
   const [editing, setEditing] = useState(false);
   const [paying, setPaying] = useState(false);
+  const [returning, setReturning] = useState(false);
   const canEdit = roleAtLeast(getRole(), "MANAGER") || isSalesgirl(getRole());
 
   const reload = useCallback(async () => {
@@ -286,11 +297,25 @@ function InvoiceDrawer({
         ) : (
           <>
             <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-base font-semibold">{inv.invoice_number}</h2>
+              <h2 className="flex items-center gap-2 text-base font-semibold">
+                {inv.invoice_number}
+                {inv.voided_at && (
+                  <span className="rounded bg-red-500/15 px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-red-700 dark:text-red-300">
+                    Void
+                  </span>
+                )}
+              </h2>
               <button onClick={onClose} aria-label="Close" className="text-muted hover:text-ink">
                 ✕
               </button>
             </div>
+
+            {inv.voided_at && (
+              <div className="mb-3 rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-700 dark:text-red-300">
+                This invoice was voided{inv.void_reason ? ` — ${inv.void_reason}` : ""}. Its stock
+                was returned and it is excluded from sales and receivables. Kept for the record.
+              </div>
+            )}
 
             <div className="mb-4 grid grid-cols-2 gap-2 text-sm">
               <F label="Customer" value={inv.customer_name ?? "Walk-in"} />
@@ -393,7 +418,7 @@ function InvoiceDrawer({
             </div>
 
             <div className="mb-4 flex flex-wrap gap-2">
-              {canEdit && (
+              {canEdit && !inv.voided_at && (
                 <button
                   onClick={() => setEditing(true)}
                   className="rounded border border-line px-3 py-1.5 text-sm hover:bg-wash"
@@ -402,24 +427,67 @@ function InvoiceDrawer({
                 </button>
               )}
               <button
-                onClick={() => printInvoice(inv, versions)}
+                onClick={() => printInvoice(inv, versions, { includeHistory: false })}
                 className="rounded border border-line px-3 py-1.5 text-sm hover:bg-wash"
+                title="Customer copy — no internal edit history"
               >
-                Print / download
+                Print for customer
               </button>
               <button
-                onClick={async () => {
-                  try {
-                    await api.createWaybill({ invoice_id: inv.id });
-                    await reload();
-                  } catch (e) {
-                    alert(e instanceof Error ? e.message : "Could not create waybill");
-                  }
-                }}
+                onClick={() => printInvoice(inv, versions)}
                 className="rounded border border-line px-3 py-1.5 text-sm hover:bg-wash"
+                title="Internal copy — includes the version history"
               >
-                {(inv.waybills ?? []).length > 0 ? "Create another waybill" : "Create waybill"}
+                Print (with history)
               </button>
+              {!inv.voided_at && (
+                <button
+                  onClick={async () => {
+                    try {
+                      await api.createWaybill({ invoice_id: inv.id });
+                      await reload();
+                    } catch (e) {
+                      alert(e instanceof Error ? e.message : "Could not create waybill");
+                    }
+                  }}
+                  className="rounded border border-line px-3 py-1.5 text-sm hover:bg-wash"
+                >
+                  {(inv.waybills ?? []).length > 0 ? "Create another waybill" : "Create waybill"}
+                </button>
+              )}
+              {/* Void — cancel a mistaken/test invoice: returns stock, drops it from
+                  totals, keeps the record. Managers and above only. */}
+              {roleAtLeast(getRole(), "MANAGER") && !inv.voided_at && (
+                <button
+                  onClick={async () => {
+                    const reason = window.prompt(
+                      "Void this invoice? Its stock will be returned and it will be excluded " +
+                        "from sales and receivables (the record is kept).\n\nReason (optional):",
+                      "",
+                    );
+                    if (reason === null) return; // cancelled
+                    try {
+                      await api.invoiceVoid(inv.id, reason);
+                      await reload();
+                    } catch (e) {
+                      alert(e instanceof Error ? e.message : "Could not void invoice");
+                    }
+                  }}
+                  className="rounded border border-red-500/40 px-3 py-1.5 text-sm text-red-700 hover:bg-red-500/10 dark:text-red-300"
+                >
+                  Void invoice
+                </button>
+              )}
+              {/* Return items — customer brings goods back: restock them and reduce
+                  what they owe, without voiding the whole sale. */}
+              {canEdit && !inv.voided_at && inv.lines.some((l) => l.product_id != null) && (
+                <button
+                  onClick={() => setReturning(true)}
+                  className="rounded border border-line px-3 py-1.5 text-sm hover:bg-wash"
+                >
+                  Return items
+                </button>
+              )}
             </div>
 
             <div className="text-xs font-medium uppercase tracking-wide text-muted">Line items</div>
@@ -495,6 +563,17 @@ function InvoiceDrawer({
                 onClose={() => setPaying(false)}
                 onDone={async () => {
                   setPaying(false);
+                  await reload();
+                  onChanged();
+                }}
+              />
+            )}
+            {returning && (
+              <ReturnModal
+                inv={inv}
+                onClose={() => setReturning(false)}
+                onDone={async () => {
+                  setReturning(false);
                   await reload();
                   onChanged();
                 }}
@@ -632,6 +711,138 @@ function PaymentModal({
               className="rounded bg-ink px-3 py-1.5 text-sm font-medium text-paper disabled:opacity-40"
             >
               {busy ? "Saving…" : "Record"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ReturnModal({
+  inv,
+  onClose,
+  onDone,
+}: {
+  inv: InvoiceDetail;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  // Returnable lines: those tied to a product with quantity still on the invoice.
+  const returnable = inv.lines.filter((l) => l.product_id != null && l.quantity > 0);
+  const [warehouses, setWarehouses] = useState<{ id: number; name: string; code: string; type?: string }[]>([]);
+  const [warehouseId, setWarehouseId] = useState("");
+  const [qty, setQty] = useState<Record<number, string>>({});
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    api
+      .list<{ id: number; name: string; code: string; type?: string }>("warehouses", "?limit=200")
+      .then((r) => {
+        setWarehouses(r.items);
+        // Prefer a shop/point-of-sale location by default, else the first warehouse.
+        const first = r.items.find((w) => w.type === "shop") ?? r.items[0];
+        if (first) setWarehouseId(String(first.id));
+      })
+      .catch(() => {});
+  }, []);
+
+  async function submit() {
+    const lines = returnable
+      .map((l) => ({ product_id: l.product_id as number, quantity: Number(qty[l.product_id as number] || 0) }))
+      .filter((l) => l.quantity > 0);
+    if (!warehouseId) {
+      setErr("Choose where to put the returned goods.");
+      return;
+    }
+    if (lines.length === 0) {
+      setErr("Enter a quantity to return on at least one item.");
+      return;
+    }
+    setBusy(true);
+    setErr(null);
+    try {
+      await api.invoiceReturn(inv.id, { warehouse_id: Number(warehouseId), lines, reason: reason || null });
+      onDone();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Could not process return");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4" onMouseDown={onClose}>
+      <div className="w-full max-w-md" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="rounded-lg border border-line bg-paper p-4 shadow-xl">
+          <div className="mb-1 text-sm font-medium">Return items</div>
+          <div className="mb-3 text-xs text-muted">
+            {inv.invoice_number} · restock returned goods and reduce what the customer owes.
+          </div>
+
+          <label className="mb-3 block text-xs">
+            Put returned stock into
+            <select
+              value={warehouseId}
+              onChange={(e) => setWarehouseId(e.target.value)}
+              className="mt-1 w-full rounded border border-line bg-paper px-3 py-2 text-sm"
+            >
+              <option value="">Choose location…</option>
+              {warehouses.map((w) => (
+                <option key={w.id} value={w.id}>
+                  {w.code} — {w.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted">Items</div>
+          <div className="space-y-2">
+            {returnable.map((l) => {
+              const pid = l.product_id as number;
+              return (
+                <div key={pid} className="grid grid-cols-12 items-center gap-2 text-sm">
+                  <span className="col-span-6 truncate">
+                    {l.original_description ?? l.product_name ?? `Product #${pid}`}
+                  </span>
+                  <span className="col-span-3 text-right text-xs text-muted">{l.quantity} sold</span>
+                  <input
+                    type="number"
+                    min="0"
+                    max={l.quantity}
+                    value={qty[pid] ?? ""}
+                    onChange={(e) => setQty((q) => ({ ...q, [pid]: e.target.value }))}
+                    placeholder="0"
+                    className="col-span-3 rounded border border-line px-2 py-1 text-right text-sm"
+                  />
+                </div>
+              );
+            })}
+          </div>
+
+          <label className="mb-2 mt-3 block text-xs">
+            Reason (optional)
+            <input
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="e.g. wrong size, damaged"
+              className="mt-1 w-full rounded border border-line px-3 py-2 text-sm"
+            />
+          </label>
+
+          {err && <div className="mb-2 text-xs text-red-700">{err}</div>}
+          <div className="flex justify-end gap-2">
+            <button onClick={onClose} className="rounded border border-line px-3 py-1.5 text-sm hover:bg-wash">
+              Cancel
+            </button>
+            <button
+              onClick={submit}
+              disabled={busy}
+              className="rounded bg-ink px-3 py-1.5 text-sm font-medium text-paper disabled:opacity-40"
+            >
+              {busy ? "Processing…" : "Process return"}
             </button>
           </div>
         </div>

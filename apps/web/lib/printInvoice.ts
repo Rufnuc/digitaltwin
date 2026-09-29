@@ -7,9 +7,16 @@ const naira = (n: number) =>
 const esc = (s: unknown) =>
   String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c] as string);
 
-// Open a print-ready window with the company header, the invoice, every past
-// version (with timing) and a QR code that traces the invoice + current version.
-export async function printInvoice(inv: InvoiceDetail, versions: InvoiceVersionRow[]) {
+// Open a print-ready window with the company header, the invoice and a QR code that
+// traces the invoice + current version. The version history is included by default
+// (internal copy); pass { includeHistory: false } for the customer's copy, which
+// omits the internal edit history a customer doesn't need to see.
+export async function printInvoice(
+  inv: InvoiceDetail,
+  versions: InvoiceVersionRow[],
+  opts: { includeHistory?: boolean } = {},
+) {
+  const includeHistory = opts.includeHistory !== false;
   const [company, qr] = await Promise.all([
     api.company().catch(() => null),
     (async () => {
@@ -110,16 +117,16 @@ export async function printInvoice(inv: InvoiceDetail, versions: InvoiceVersionR
       <tr class="grand"><td>Total</td><td class="r">${naira(inv.total)}</td></tr>
     </table>
 
-    <h2>Version history (${versions.length})</h2>
+    ${includeHistory ? `<h2>Version history (${versions.length})</h2>
     <table>
       <thead><tr><th>Version</th><th>Change</th><th>By</th><th>When</th><th class="r">Total</th></tr></thead>
       <tbody>${versionRows || `<tr><td colspan="5" class="muted">No prior versions recorded.</td></tr>`}</tbody>
-    </table>
+    </table>` : ""}
 
     <div class="foot">
       ${c?.footer_note ? esc(c.footer_note) + "<br/>" : ""}
       Raised by ${esc(inv.created_by ?? "—")}. Generated ${esc(new Date().toLocaleString())}.
-      This document lists every recorded version of the invoice; versions are immutable.
+      ${includeHistory ? "This document lists every recorded version of the invoice; versions are immutable." : ""}
     </div>
     <script>window.onload = function(){ setTimeout(function(){ window.print(); }, 150); };</script>
   </body></html>`;

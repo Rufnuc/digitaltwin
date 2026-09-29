@@ -105,6 +105,94 @@ def test_sold_line_exposes_product_name_without_description(client, auth_headers
     assert line["product_name"] == "Brake Pad"
 
 
+def test_void_invoice_returns_stock_and_neutralises_totals(client, auth_headers, db, seeded):
+    stock.receive_stock(db, product_id=seeded["product"], warehouse_id=seeded["lagos"],
+                        quantity=20, unit_cost=1000)
+    r = client.post("/api/v1/invoices/sell", headers=auth_headers("MANAGER"), json={
+        "invoice_number": "INV-VOID-1", "invoice_date": "2026-03-01",
+        "warehouse_id": seeded["lagos"], "customer_id": seeded["customer"],
+        "lines": [{"product_id": seeded["product"], "quantity": 8, "unit_price": 1500}],
+    })
+    assert r.status_code == 201, r.text
+    inv_id = r.json()["invoice"]["id"]
+    assert stock.on_hand(db, seeded["product"], seeded["lagos"]) == 12  # 20 - 8
+
+    v = client.post(f"/api/v1/invoices/{inv_id}/void", headers=auth_headers("MANAGER"),
+                    json={"reason": "test invoice"})
+    assert v.status_code == 200, v.text
+    body = v.json()
+    assert body["voided_at"] is not None
+    assert body["void_reason"] == "test invoice"
+    assert body["total"] == 0
+    assert body["lines"] == []
+    # Stock is back.
+    db.expire_all()
+    assert stock.on_hand(db, seeded["product"], seeded["lagos"]) == 20
+    # It no longer counts toward the customer's lifetime revenue.
+    from app.services import customer_rollups
+    customer_rollups.recompute_one(db, seeded["customer"])
+    cust = db.get(Customer, seeded["customer"])
+    assert float(cust.lifetime_revenue or 0) == 0.0
+
+
+def test_void_invoice_is_idempotent_guarded(client, auth_headers, db, seeded):
+    stock.receive_stock(db, product_id=seeded["product"], warehouse_id=seeded["lagos"], quantity=5)
+    r = client.post("/api/v1/invoices/sell", headers=auth_headers("MANAGER"), json={
+        "invoice_number": "INV-VOID-2", "invoice_date": "2026-03-01",
+        "warehouse_id": seeded["lagos"],
+        "lines": [{"product_id": seeded["product"], "quantity": 2, "unit_price": 1500}],
+    })
+    inv_id = r.json()["invoice"]["id"]
+    assert client.post(f"/api/v1/invoices/{inv_id}/void", headers=auth_headers("MANAGER")).status_code == 200
+    # Voiding again is rejected (and stock is not returned twice).
+    again = client.post(f"/api/v1/invoices/{inv_id}/void", headers=auth_headers("MANAGER"))
+    assert again.status_code == 409
+    db.expire_all()
+    assert stock.on_hand(db, seeded["product"], seeded["lagos"]) == 5
+
+
+def test_return_items_restocks_and_reduces_invoice(client, auth_headers, db, seeded):
+    stock.receive_stock(db, product_id=seeded["product"], warehouse_id=seeded["lagos"],
+                        quantity=20, unit_cost=1000)
+    r = client.post("/api/v1/invoices/sell", headers=auth_headers("MANAGER"), json={
+        "invoice_number": "INV-RET-1", "invoice_date": "2026-03-01",
+        "warehouse_id": seeded["lagos"], "customer_id": seeded["customer"],
+        "lines": [{"product_id": seeded["product"], "quantity": 8, "unit_price": 1500}],
+    })
+    inv_id = r.json()["invoice"]["id"]
+    assert stock.on_hand(db, seeded["product"], seeded["lagos"]) == 12  # 20 - 8
+
+    # Customer returns 3 of the 8.
+    ret = client.post(f"/api/v1/invoices/{inv_id}/return", headers=auth_headers("MANAGER"), json={
+        "warehouse_id": seeded["lagos"],
+        "lines": [{"product_id": seeded["product"], "quantity": 3}],
+        "reason": "wrong item",
+    })
+    assert ret.status_code == 200, ret.text
+    body = ret.json()
+    # 5 remain on the invoice; total reduced to 5 * 1500.
+    assert body["lines"][0]["quantity"] == 5
+    assert body["total"] == 7500
+    # The 3 units are back on the shelf.
+    db.expire_all()
+    assert stock.on_hand(db, seeded["product"], seeded["lagos"]) == 15  # 12 + 3
+
+
+def test_return_more_than_sold_is_rejected(client, auth_headers, db, seeded):
+    stock.receive_stock(db, product_id=seeded["product"], warehouse_id=seeded["lagos"], quantity=10)
+    r = client.post("/api/v1/invoices/sell", headers=auth_headers("MANAGER"), json={
+        "invoice_number": "INV-RET-2", "invoice_date": "2026-03-01",
+        "warehouse_id": seeded["lagos"],
+        "lines": [{"product_id": seeded["product"], "quantity": 2, "unit_price": 1500}],
+    })
+    inv_id = r.json()["invoice"]["id"]
+    ret = client.post(f"/api/v1/invoices/{inv_id}/return", headers=auth_headers("MANAGER"), json={
+        "warehouse_id": seeded["lagos"],
+        "lines": [{"product_id": seeded["product"], "quantity": 5}],
+    })
+    assert ret.status_code == 422
+
+
 def test_sell_endpoint_rejects_oversell(client, auth_headers, db, seeded):
     stock.receive_stock(db, product_id=seeded["product"], warehouse_id=seeded["lagos"], quantity=3)
     r = client.post("/api/v1/invoices/sell", headers=auth_headers("STAFF"), json={

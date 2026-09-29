@@ -270,6 +270,19 @@ export const api = {
     request<{ items: InvoiceVersionRow[] }>(`/invoices/${id}/versions`),
   invoiceUpdate: (id: number, body: unknown) =>
     request<InvoiceDetail>(`/invoices/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  invoiceVoid: (id: number, reason?: string) =>
+    request<InvoiceDetail>(`/invoices/${id}/void`, {
+      method: "POST",
+      body: JSON.stringify({ reason: reason || null }),
+    }),
+  invoiceReturn: (
+    id: number,
+    body: { warehouse_id: number; lines: { product_id: number; quantity: number }[]; reason?: string | null },
+  ) =>
+    request<InvoiceDetail>(`/invoices/${id}/return`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   productImages: (id: number) =>
     request<{ items: ProductImage[] }>(`/products/${id}/images`),
   productHistory: (id: number) => request<ProductHistory>(`/products/${id}/history`),
@@ -993,6 +1006,8 @@ export interface InvoiceDetail {
   amount_paid?: number;
   payment_status?: string;
   balance?: number;
+  voided_at?: string | null;
+  void_reason?: string | null;
   payments?: InvoicePayment[];
   waybills?: { id: number; waybill_number: string; status: string; dispatched_at: string | null }[];
   lines: {
