@@ -209,11 +209,17 @@ export default function InvoicesPage() {
                   <td className="px-3 py-2 text-muted">{r.customer_name ?? "—"}</td>
                   <td className="px-3 py-2">{money2(r.total)}</td>
                   <td className="px-3 py-2">
-                    <span className={PAY_STYLE[r.payment_status] ?? ""}>
-                      {r.payment_status === "PAID"
-                        ? "Paid"
-                        : `${r.payment_status === "PARTIAL" ? "Owing " : "Owing "}${money2(r.balance)}`}
-                    </span>
+                    {r.voided_at ? (
+                      <span className="text-muted">Void</span>
+                    ) : r.balance < -0.005 ? (
+                      <span className="text-blue-700 dark:text-blue-300">
+                        Refund {money2(-r.balance)}
+                      </span>
+                    ) : (
+                      <span className={PAY_STYLE[r.payment_status] ?? ""}>
+                        {r.payment_status === "PAID" ? "Paid" : `Owing ${money2(r.balance)}`}
+                      </span>
+                    )}
                   </td>
                   <td className="px-3 py-2">
                     <span className={r.verification_status === "NEEDS_REVIEW" ? "text-yellow-700 dark:text-yellow-300" : ""}>
@@ -327,11 +333,12 @@ function InvoiceDrawer({
               <F label="Total" value={money2(inv.total)} />
               <F
                 label="Payment"
-                value={
-                  inv.payment_status === "PAID"
-                    ? "Paid in full"
-                    : `Owing ${money2(inv.balance ?? inv.total - (inv.amount_paid ?? 0))}`
-                }
+                value={(() => {
+                  const bal = inv.balance ?? inv.total - (inv.amount_paid ?? 0);
+                  if (inv.voided_at) return "Voided";
+                  if (bal < -0.005) return `Refund due ${money2(-bal)}`;
+                  return inv.payment_status === "PAID" ? "Paid in full" : `Owing ${money2(bal)}`;
+                })()}
               />
               <F label="Verification" value={inv.verification_status} />
               <F label="Version" value={`v${inv.version_no}`} />
@@ -346,6 +353,11 @@ function InvoiceDrawer({
                 {(inv.balance ?? 0) > 0 && (
                   <span className="text-xs text-red-600">
                     Owing {money2(inv.balance ?? 0)}
+                  </span>
+                )}
+                {(inv.balance ?? 0) < -0.005 && (
+                  <span className="text-xs text-blue-700 dark:text-blue-300">
+                    Refund due {money2(-(inv.balance ?? 0))}
                   </span>
                 )}
               </div>
@@ -461,8 +473,9 @@ function InvoiceDrawer({
                 <button
                   onClick={async () => {
                     const reason = window.prompt(
-                      "Void this invoice? Its stock will be returned and it will be excluded " +
-                        "from sales and receivables (the record is kept).\n\nReason (optional):",
+                      "Void this invoice? Its stock will be returned, any money the customer " +
+                        "paid will be refunded, and it will be excluded from sales and " +
+                        "receivables (the record is kept).\n\nReason (optional):",
                       "",
                     );
                     if (reason === null) return; // cancelled
