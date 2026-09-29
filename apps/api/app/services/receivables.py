@@ -150,7 +150,9 @@ def _days_overdue(inv: Invoice, as_of: date) -> int:
 
 
 def _open_invoices(db: Session, customer_id: int | None = None) -> list[Invoice]:
-    stmt = select(Invoice).where(Invoice.payment_status != "PAID")
+    stmt = select(Invoice).where(
+        Invoice.payment_status != "PAID", Invoice.voided_at.is_(None)
+    )
     if customer_id is not None:
         stmt = stmt.where(Invoice.customer_id == customer_id)
     return list(db.scalars(stmt).all())
@@ -220,7 +222,7 @@ def customer_statement(db: Session, customer_id: int) -> dict:
     if cust is None:
         return {"status": "NOT_FOUND"}
     invoices = db.scalars(
-        select(Invoice).where(Invoice.customer_id == customer_id)
+        select(Invoice).where(Invoice.customer_id == customer_id, Invoice.voided_at.is_(None))
         .order_by(Invoice.invoice_date, Invoice.id)
     ).all()
     events = []

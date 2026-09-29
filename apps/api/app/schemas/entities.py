@@ -5,7 +5,7 @@ provenance + timestamps; Create/Update models accept only user-settable fields.
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 
 from pydantic import BaseModel
 
@@ -305,4 +305,6 @@ class InvoiceOut(ProvenanceOut, TimestampsOut):
     amount_paid: float = 0
     payment_status: str = "UNPAID"
     due_date: date | None = None
+    voided_at: datetime | None = None
+    void_reason: str | None = None
     lines: list[InvoiceLineOut] = []

@@ -19,7 +19,7 @@ def recompute_one(db: Session, customer_id: int, commit: bool = True) -> None:
             func.count(Invoice.id),
             func.min(Invoice.invoice_date),
             func.max(Invoice.invoice_date),
-        ).where(Invoice.customer_id == customer_id)
+        ).where(Invoice.customer_id == customer_id, Invoice.voided_at.is_(None))
     ).one()
     cust.lifetime_revenue = round(float(total or 0), 2)
     cust.order_count = int(cnt or 0)

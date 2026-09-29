@@ -272,6 +272,181 @@ def update_invoice(
     return get_invoice(inv.id, db, user)
 
 
+class VoidRequest(BaseModel):
+    reason: str | None = None
+
+
+@router.post("/{invoice_id}/void")
+def void_invoice(
+    invoice_id: int,
+    payload: VoidRequest | None = None,
+    db: Session = Depends(db_session),
+    user: User = Depends(require_role(Role.MANAGER)),
+) -> dict:
+    """Cancel an invoice: return any stock it drew, and exclude it from revenue and
+    receivables. The invoice is kept (marked VOID) with its history intact — it is
+    never hard-deleted, so the record of what happened is preserved.
+
+    Blocked when the invoice has confirmed payments: refund/void the payment first,
+    so money received is never silently disconnected from a cancelled sale.
+    """
+    from datetime import datetime, timezone
+
+    from app.models.payment import Payment
+    from app.services import stock
+
+    inv = db.get(Invoice, invoice_id)
+    if inv is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Invoice {invoice_id} not found")
+    if inv.voided_at is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "this invoice is already void")
+
+    has_payments = bool(db.scalar(
+        select(func.count()).select_from(Payment)
+        .where(Payment.invoice_id == inv.id, Payment.status == "CONFIRMED")
+    ))
+    if has_payments:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "this invoice has confirmed payments — refund or void the payment before "
+            "voiding the invoice.",
+        )
+
+    # Return the goods this sale drew back to their lots (no-op for a non-stock invoice).
+    stock.reverse_sale(db, invoice_id=inv.id, user_id=user.id, commit=False)
+
+    customer_id = inv.customer_id
+    # Neutralise the invoice's money so every downstream total excludes it, while the
+    # prior version snapshot preserves exactly what it was.
+    inv.lines.clear()
+    inv.subtotal = inv.discount = inv.tax = inv.shipping = inv.total = 0
+    inv.amount_paid = 0
+    inv.payment_status = "PAID"  # nothing owed on a voided invoice
+    inv.voided_at = datetime.now(timezone.utc)
+    inv.voided_by_user_id = user.id
+    inv.void_reason = (payload.reason if payload else None) or "voided"
+    inv.updated_by_user_id = user.id
+    inv.version_no += 1
+    db.flush()
+    _record_version(db, inv, user.id, f"voided: {inv.void_reason}")
+    db.commit()
+    db.refresh(inv)
+
+    if customer_id is not None:
+        from app.services import customer_rollups
+        customer_rollups.recompute_one(db, customer_id)
+
+    audit.record(
+        db, action=AuditAction.UPDATE, user_id=user.id, entity_type="invoice",
+        entity_id=inv.id, new_value={"voided": "true", "reason": inv.void_reason},
+        summary=f"invoice {inv.invoice_number} voided",
+    )
+    return get_invoice(inv.id, db, user)
+
+
+class ReturnLine(BaseModel):
+    product_id: int
+    quantity: float = Field(gt=0)
+
+
+class ReturnRequest(BaseModel):
+    warehouse_id: int
+    lines: list[ReturnLine] = Field(min_length=1)
+    reason: str | None = None
+
+
+@router.post("/{invoice_id}/return")
+def return_items(
+    invoice_id: int,
+    payload: ReturnRequest,
+    db: Session = Depends(db_session),
+    user: User = Depends(require_role(Role.MANAGER, allow=(Role.SALESGIRL,))),
+) -> dict:
+    """Process a customer return: put the returned goods back into a warehouse and
+    reduce the invoice (and what the customer owes) by the returned value.
+
+    Quantities are validated against what is still on the invoice, so you can return
+    part of a sale and return again later. The original sale is preserved in the
+    version history; if the customer had already paid, the balance goes negative to
+    show a refund is due.
+    """
+    from app.services import stock
+
+    inv = db.get(Invoice, invoice_id)
+    if inv is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Invoice {invoice_id} not found")
+    if inv.voided_at is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "this invoice is void")
+
+    # How much of each product is still on the invoice (net of earlier returns).
+    remaining: dict[int, float] = {}
+    for ln in inv.lines:
+        if ln.product_id is not None:
+            remaining[ln.product_id] = remaining.get(ln.product_id, 0.0) + float(ln.quantity or 0)
+
+    for rl in payload.lines:
+        have = remaining.get(rl.product_id, 0.0)
+        if rl.quantity > have + _TOLERANCE:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                f"cannot return {rl.quantity} of product {rl.product_id}: only {have:g} "
+                f"remain on this invoice.",
+            )
+
+    returned_products: list[int] = []
+    try:
+        for rl in payload.lines:
+            left = float(rl.quantity)
+            # Reduce the invoice's line(s) for this product and restock at the line's
+            # cost basis so inventory valuation stays correct.
+            for ln in [x for x in inv.lines if x.product_id == rl.product_id]:
+                if left <= _TOLERANCE:
+                    break
+                take = min(left, float(ln.quantity or 0))
+                if take <= 0:
+                    continue
+                stock.receive_stock(
+                    db, product_id=rl.product_id, warehouse_id=payload.warehouse_id,
+                    quantity=int(take), unit_cost=ln.unit_cost,
+                    note=f"customer return: invoice {inv.invoice_number}",
+                    user_id=user.id, commit=False,
+                )
+                ln.quantity = float(ln.quantity or 0) - take
+                ln.line_total = round(float(ln.quantity) * float(ln.unit_price or 0), 2)
+                left -= take
+            returned_products.append(rl.product_id)
+    except stock.StockError as exc:
+        db.rollback()
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+
+    # Drop fully-returned lines and recompute the money.
+    inv.lines[:] = [ln for ln in inv.lines if float(ln.quantity or 0) > _TOLERANCE]
+    inv.subtotal = round(sum(float(ln.line_total or 0) for ln in inv.lines), 2)
+    inv.total = round(float(inv.subtotal) + float(inv.tax or 0) + float(inv.shipping or 0)
+                      - float(inv.discount or 0), 2)
+    inv.updated_by_user_id = user.id
+    inv.version_no += 1
+    note = payload.reason or f"returned products {returned_products}"
+    from app.services.receivables import _recalc
+    _recalc(db, inv)
+    db.flush()
+    _record_version(db, inv, user.id, f"customer return: {note}")
+    db.commit()
+    db.refresh(inv)
+
+    if inv.customer_id is not None:
+        from app.services import customer_rollups
+        customer_rollups.recompute_one(db, inv.customer_id)
+
+    audit.record(
+        db, action=AuditAction.UPDATE, user_id=user.id, entity_type="invoice",
+        entity_id=inv.id,
+        new_value={"return": note, "warehouse_id": str(payload.warehouse_id)},
+        summary=f"customer return on invoice {inv.invoice_number}",
+    )
+    return get_invoice(inv.id, db, user)
+
+
 @router.post("", response_model=InvoiceOut, status_code=status.HTTP_201_CREATED)
 def create_invoice(
     payload: InvoiceCreate,
