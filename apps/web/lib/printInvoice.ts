@@ -30,15 +30,16 @@ export async function printInvoice(inv: InvoiceDetail, versions: InvoiceVersionR
   ]);
 
   const lineRows = inv.lines
-    .map(
-      (ln) => `<tr>
-        <td>${esc(ln.original_description ?? `Product #${ln.product_id ?? ""}`)}</td>
-        <td class="r">${ln.quantity}</td>
-        <td class="r">${naira(ln.unit_price)}</td>
-        <td class="r">${naira(ln.line_total)}</td>
-      </tr>`,
-    )
-    .join("");
+  .map(
+    (ln) => `<tr>
+      <td>${esc(ln.original_description || "Product")}</td>
+      <td class="r">${ln.quantity}</td>
+      <td class="r">${naira(ln.unit_price)}</td>
+      <td class="r">${naira(ln.line_total)}</td>
+    </tr>`,
+  )
+  .join("");
+
 
   const versionRows = versions
     .map(
