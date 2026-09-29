@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import JSON, Date, DateTime, ForeignKey, Integer, Numeric, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, ProvenanceMixin, TimestampMixin
 from app.models.organization import MONEY
+
+if TYPE_CHECKING:
+    from app.models.product import Product
 
 
 class Invoice(Base, TimestampMixin, ProvenanceMixin):
@@ -77,6 +81,15 @@ class InvoiceLine(Base, TimestampMixin, ProvenanceMixin):
     unit_cost: Mapped[float | None] = mapped_column(MONEY, nullable=True)  # COGS basis
 
     invoice: Mapped[Invoice] = relationship(back_populates="lines")
+    # The catalog product this line was sold as (when matched). Joined-loaded so the
+    # product's name is available for display without an extra query per line.
+    product: Mapped[Product | None] = relationship("Product", lazy="joined")
+
+    @property
+    def product_name(self) -> str | None:
+        """Display name for the line: the catalog product's name when linked. Lets an
+        invoice show what was sold even when no free-text description was captured."""
+        return self.product.name if self.product is not None else None
 
 
 class InvoiceVersion(Base):

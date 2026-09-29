@@ -997,6 +997,7 @@ export interface InvoiceDetail {
   waybills?: { id: number; waybill_number: string; status: string; dispatched_at: string | null }[];
   lines: {
     product_id: number | null;
+    product_name: string | null;
     original_description: string | null;
     quantity: number;
     unit_price: number;

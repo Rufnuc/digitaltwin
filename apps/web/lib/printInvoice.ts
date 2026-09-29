@@ -32,7 +32,7 @@ export async function printInvoice(inv: InvoiceDetail, versions: InvoiceVersionR
   const lineRows = inv.lines
   .map(
     (ln) => `<tr>
-      <td>${esc(ln.original_description || "Product")}</td>
+      <td>${esc(ln.original_description || ln.product_name || "Product")}</td>
       <td class="r">${ln.quantity}</td>
       <td class="r">${naira(ln.unit_price)}</td>
       <td class="r">${naira(ln.line_total)}</td>
