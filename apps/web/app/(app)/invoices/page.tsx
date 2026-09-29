@@ -427,7 +427,7 @@ function InvoiceDrawer({
               <tbody>
                 {inv.lines.map((ln, i) => (
                   <tr key={i} className="border-t border-line tabular-nums">
-                    <td className="py-1">{ln.original_description ?? `Product #${ln.product_id ?? "—"}`}</td>
+                    <td className="py-1">{ln.original_description ?? ln.product_name ?? `Product #${ln.product_id ?? "—"}`}</td>
                     <td className="py-1 text-right">{ln.quantity} ×</td>
                     <td className="py-1 text-right">{money2(ln.unit_price)}</td>
                     <td className="py-1 text-right font-medium">{money2(ln.line_total)}</td>

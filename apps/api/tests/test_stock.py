@@ -84,6 +84,27 @@ def test_sell_endpoint_moves_stock(client, auth_headers, db, seeded):
     assert stock.on_hand(db, seeded["product"], seeded["lagos"]) == 12
 
 
+def test_sold_line_exposes_product_name_without_description(client, auth_headers, db, seeded):
+    # A sale carries no free-text description, so the invoice must surface the linked
+    # product's name — otherwise the printed invoice just reads "Product".
+    stock.receive_stock(db, product_id=seeded["product"], warehouse_id=seeded["lagos"],
+                        quantity=20, unit_cost=1000)
+    r = client.post("/api/v1/invoices/sell", headers=auth_headers("STAFF"), json={
+        "invoice_number": "INV-1003", "invoice_date": "2026-03-01",
+        "warehouse_id": seeded["lagos"], "customer_id": seeded["customer"],
+        "lines": [{"product_id": seeded["product"], "quantity": 5, "unit_price": 1500}],
+    })
+    assert r.status_code == 201, r.text
+    invoice_id = r.json()["invoice"]["id"]
+
+    detail = client.get(f"/api/v1/invoices/{invoice_id}", headers=auth_headers("STAFF")).json()
+    line = detail["lines"][0]
+    # The sale stores the product name as the line description (caller sent none) and
+    # also surfaces it via product_name — either way the invoice shows what was sold.
+    assert line["original_description"] == "Brake Pad"
+    assert line["product_name"] == "Brake Pad"
+
+
 def test_sell_endpoint_rejects_oversell(client, auth_headers, db, seeded):
     stock.receive_stock(db, product_id=seeded["product"], warehouse_id=seeded["lagos"], quantity=3)
     r = client.post("/api/v1/invoices/sell", headers=auth_headers("STAFF"), json={

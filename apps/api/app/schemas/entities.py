@@ -270,6 +270,7 @@ class InvoiceLineIn(BaseModel):
 class InvoiceLineOut(ProvenanceOut, ORMModel):
     id: int
     product_id: int | None = None
+    product_name: str | None = None
     original_description: str | None = None
     quantity: float
     unit_price: float
