@@ -90,6 +90,21 @@ def test_ambiguous_amount_stays_unmatched_with_suggestions(db, invoice):
     assert {invoice.id, inv2.id} <= sugg_ids
 
 
+def test_duplicate_charge_is_flagged(db, invoice):
+    inv2 = Invoice(invoice_number="INV-POS-DUP", invoice_date=date(2026, 3, 1),
+                   customer_id=invoice.customer_id, subtotal=5000, total=5000,
+                   payment_status="UNPAID", version_no=1)
+    db.add(inv2)
+    db.commit()
+    # Two separate POS transactions for the same amount, moments apart → the second
+    # (unmatched) one should be flagged as a possible duplicate.
+    reconcile.ingest_transaction(db, _txn("DUPA", 5000, terminal="T1"))
+    reconcile.ingest_transaction(db, _txn("DUPB", 5000, terminal="T1"))
+    unmatched = reconcile.list_unmatched(db)
+    flagged = [u for u in unmatched if any(f["type"] == "possible_duplicate" for f in u["flags"])]
+    assert flagged, "expected a possible_duplicate flag"
+
+
 def test_manual_assign_records_payment(db, invoice):
     inv2 = Invoice(invoice_number="INV-POS-3", invoice_date=date(2026, 3, 1),
                    customer_id=invoice.customer_id, subtotal=5000, total=5000,

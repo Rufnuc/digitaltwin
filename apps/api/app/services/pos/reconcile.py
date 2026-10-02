@@ -263,16 +263,69 @@ def suggest_invoices(db: Session, row: PosTransaction, limit: int = 3) -> list[d
     return scored[:limit]
 
 
+def _aware(dt: datetime | None, fallback: datetime) -> datetime:
+    if dt is None:
+        return fallback
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def detect_flags(db: Session, row: PosTransaction, suggestions: list[dict]) -> list[dict]:
+    """Risk flags for a transaction a human should look at before linking:
+    a possible duplicate charge, or an amount that matches no open invoice."""
+    flags: list[dict] = []
+    now = _now()
+    when = _aware(row.occurred_at or row.received_at, now)
+    amt = float(row.amount)
+    dup_window = timedelta(minutes=10)
+
+    # Possible duplicate: another transaction, same amount, same terminal (or terminal
+    # unknown), within a few minutes — the customer may have been charged twice.
+    others = db.scalars(
+        select(PosTransaction).where(
+            PosTransaction.id != row.id,
+            PosTransaction.provider == row.provider,
+            PosTransaction.amount >= amt - _EPS,
+            PosTransaction.amount <= amt + _EPS,
+        )
+    ).all()
+    for o in others:
+        ow = _aware(o.occurred_at or o.received_at, now)
+        same_terminal = (o.terminal_id or None) == (row.terminal_id or None)
+        if abs((ow - when).total_seconds()) <= dup_window.total_seconds() and (
+            same_terminal or not row.terminal_id
+        ):
+            flags.append({
+                "type": "possible_duplicate",
+                "message": f"Possible duplicate of transaction #{o.id} "
+                           f"({o.status.lower()}) — same amount within 10 minutes.",
+            })
+            break
+
+    # No candidate invoice matches this amount at all — unusual for a real sale.
+    if not suggestions:
+        flags.append({
+            "type": "no_matching_invoice",
+            "message": "No open invoice matches this amount — check it's a real sale "
+                       "before assigning.",
+        })
+    return flags
+
+
 def list_unmatched(db: Session, *, limit: int = 50) -> list[dict]:
     rows = db.scalars(
         select(PosTransaction).where(PosTransaction.status == "UNMATCHED")
         .order_by(PosTransaction.received_at.desc()).limit(limit)
     ).all()
-    return [{
-        "id": r.id, "provider": r.provider, "amount": float(r.amount),
-        "terminal_id": r.terminal_id, "reference": r.reference,
-        "masked_pan": r.masked_pan,
-        "occurred_at": r.occurred_at.isoformat() if r.occurred_at else None,
-        "received_at": r.received_at.isoformat() if r.received_at else None,
-        "suggestions": suggest_invoices(db, r),
-    } for r in rows]
+    out = []
+    for r in rows:
+        suggestions = suggest_invoices(db, r)
+        out.append({
+            "id": r.id, "provider": r.provider, "amount": float(r.amount),
+            "terminal_id": r.terminal_id, "reference": r.reference,
+            "masked_pan": r.masked_pan,
+            "occurred_at": r.occurred_at.isoformat() if r.occurred_at else None,
+            "received_at": r.received_at.isoformat() if r.received_at else None,
+            "suggestions": suggestions,
+            "flags": detect_flags(db, r, suggestions),
+        })
+    return out
