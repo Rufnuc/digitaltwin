@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 440" font-family="-apple-system,Segoe UI,Roboto,sans-serif">
+  <rect width="820" height="440" fill="#f8fafc"/>
+  <!-- top bar -->
+  <rect x="12" y="12" width="796" height="40" rx="8" fill="#ffffff" stroke="#e5e7eb"/>
+  <text x="28" y="37" font-size="14" font-weight="700" fill="#111">Your Business</text>
+  <circle cx="770" cy="32" r="10" fill="#e5e7eb"/>
+  <circle cx="735" cy="32" r="10" fill="#e5e7eb"/>
+  <text x="600" y="36" font-size="11" fill="#6b7280">notifications · account →</text>
+  <!-- sidebar -->
+  <rect x="12" y="60" width="190" height="368" rx="8" fill="#ffffff" stroke="#e5e7eb"/>
+  <text x="28" y="84" font-size="10" font-weight="700" fill="#6b7280">OVERVIEW</text>
+  <rect x="20" y="92" width="174" height="22" rx="5" fill="#eef2ff"/>
+  <text x="30" y="107" font-size="12" fill="#2563eb">Dashboard</text>
+  <text x="30" y="131" font-size="12" fill="#111">Analytics</text>
+  <text x="28" y="158" font-size="10" font-weight="700" fill="#6b7280">SALES &amp; MONEY</text>
+  <text x="30" y="179" font-size="12" fill="#111">Customers</text>
+  <text x="30" y="201" font-size="12" fill="#111">Invoices &amp; Sales</text>
+  <text x="30" y="223" font-size="12" fill="#111">Receivables</text>
+  <text x="30" y="245" font-size="12" fill="#111">POS Payments</text>
+  <text x="28" y="272" font-size="10" font-weight="700" fill="#6b7280">INVENTORY</text>
+  <text x="30" y="293" font-size="12" fill="#111">Products</text>
+  <text x="30" y="315" font-size="12" fill="#111">Inventory</text>
+  <text x="28" y="342" font-size="10" font-weight="700" fill="#6b7280">DATA &amp; SETTINGS</text>
+  <text x="30" y="363" font-size="12" fill="#111">Knowledgebase</text>
+  <text x="30" y="385" font-size="12" fill="#111">Settings</text>
+  <!-- main -->
+  <rect x="214" y="60" width="594" height="368" rx="8" fill="#ffffff" stroke="#e5e7eb"/>
+  <text x="234" y="90" font-size="16" font-weight="700" fill="#111">Dashboard</text>
+  <rect x="234" y="104" width="170" height="70" rx="8" fill="#f1f5f9"/>
+  <text x="248" y="128" font-size="10" fill="#6b7280">REVENUE</text>
+  <text x="248" y="152" font-size="18" font-weight="700" fill="#111">₦ 1,250,000</text>
+  <rect x="414" y="104" width="170" height="70" rx="8" fill="#f1f5f9"/>
+  <text x="428" y="128" font-size="10" fill="#6b7280">OUTSTANDING</text>
+  <text x="428" y="152" font-size="18" font-weight="700" fill="#111">₦ 320,000</text>
+  <rect x="594" y="104" width="194" height="70" rx="8" fill="#f1f5f9"/>
+  <text x="608" y="128" font-size="10" fill="#6b7280">INVENTORY VALUE</text>
+  <text x="608" y="152" font-size="18" font-weight="700" fill="#111">₦ 4,800,000</text>
+  <rect x="234" y="190" width="554" height="220" rx="8" fill="#fbfdff" stroke="#eef2f7"/>
+  <text x="250" y="214" font-size="12" font-weight="600" fill="#374151">Recent sales &amp; things that need you</text>
+  <rect x="250" y="228" width="522" height="26" rx="5" fill="#ffffff" stroke="#eef2f7"/>
+  <rect x="250" y="260" width="522" height="26" rx="5" fill="#ffffff" stroke="#eef2f7"/>
+  <rect x="250" y="292" width="522" height="26" rx="5" fill="#ffffff" stroke="#eef2f7"/>
+  <!-- callouts -->
+  <text x="28" y="420" font-size="11" fill="#2563eb">① Sidebar — every area, grouped by section</text>
+  <text x="420" y="420" font-size="11" fill="#2563eb">② Main area — the screen you're working on</text>
+</svg>

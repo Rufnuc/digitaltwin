@@ -10,6 +10,7 @@ GUIDES: list[tuple[str, str, str]] = [
     # ----------------------------------------------------------------- Getting started
     ("Getting started: a tour of the app", "Getting Started",
      "# Getting started\n\n"
+     "![The app layout: sidebar, main area and dashboard](/api/v1/kb/assets/overview.svg)\n\n"
      "Welcome. This app runs your whole business — sales, stock, customers, suppliers, "
      "money and reporting — in one place. This guide orients you; the other articles go "
      "deep on each area.\n\n"
@@ -96,6 +97,7 @@ GUIDES: list[tuple[str, str, str]] = [
 
     ("Recording a sale (step by step)", "Sales & Invoicing",
      "# Record a sale\n\n"
+     "![The New Sale screen](/api/v1/kb/assets/sale.svg)\n\n"
      "Use **New Sale** whenever a customer buys goods. This both bills the customer and "
      "draws the goods from your stock.\n\n"
      "## Steps\n"
@@ -126,6 +128,7 @@ GUIDES: list[tuple[str, str, str]] = [
 
     ("Working with invoices", "Sales & Invoicing",
      "# Invoices\n\n"
+     "![The invoice panel and its actions](/api/v1/kb/assets/invoice.svg)\n\n"
      "Every sale creates an invoice. The **Invoices & Sales** screen lists them with search, "
      "filters (by payment status, verification) and sorting.\n\n"
      "## Open an invoice\n"
@@ -207,6 +210,7 @@ GUIDES: list[tuple[str, str, str]] = [
 
     ("Card payments on the POS machine (Moniepoint)", "Payments",
      "# POS card payments\n\n"
+     "![The POS Payments reconciliation screen](/api/v1/kb/assets/pos.svg)\n\n"
      "The app can link card payments taken on your Moniepoint terminal to the right invoice "
      "— for full and part payments.\n\n"
      "## The easy way: charge from the invoice\n"
@@ -355,6 +359,7 @@ GUIDES: list[tuple[str, str, str]] = [
     # ----------------------------------------------------------------- Administration
     ("Team Map: staff location", "Administration",
      "# Team Map\n\n"
+     "![The Team Map with addressed pins and a team list](/api/v1/kb/assets/teammap.svg)\n\n"
      "Managers can see where team members are while they're logged in on a company device, "
      "shown as a **readable address** on a live map.\n\n"
      "## Using it\n"

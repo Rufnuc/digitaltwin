@@ -17,7 +17,7 @@ from app.models.knowledge import KbArticle, KbArticleVersion
 from scripts.kb_guides import GUIDES
 from app.models.user import User
 
-CONTENT_VERSION = "5"
+CONTENT_VERSION = "6"
 CHANGELOG_TITLE = "Development Changelog"
 
 # (ISO timestamp, short title, detailed description) — the real commit history.

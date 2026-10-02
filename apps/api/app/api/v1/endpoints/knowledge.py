@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import mimetypes
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, status
 from pydantic import BaseModel, Field
@@ -165,6 +166,22 @@ async def upload_image(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "only image files are allowed")
     key = get_storage().save(data, file.filename or "image", ctype)
     return {"key": key, "url": f"/api/v1/kb/images/{key}"}
+
+
+_ASSETS_DIR = Path(__file__).resolve().parents[3] / "kb_assets"
+
+
+@router.get("/assets/{name}")
+def get_asset(name: str) -> Response:
+    """Serve a bundled guide illustration (public, read-only). Whitelisted by filename."""
+    if "/" in name or "\\" in name or ".." in name:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "bad asset name")
+    path = _ASSETS_DIR / name
+    if not path.is_file():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "asset not found")
+    ctype = mimetypes.guess_type(name)[0] or "application/octet-stream"
+    return Response(content=path.read_bytes(), media_type=ctype,
+                    headers={"Cache-Control": "public, max-age=86400"})
 
 
 @router.get("/images/{key}")
