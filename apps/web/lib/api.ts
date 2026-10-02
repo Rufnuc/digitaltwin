@@ -1291,6 +1291,8 @@ export interface MarketRefreshResult {
   indicators_updated: number;
   news_ingested: number;
   sources: string[];
+  errors?: { source: string; error: string }[];
+  reached_any?: boolean;
   as_of: string;
 }
 

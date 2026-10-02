@@ -30,9 +30,22 @@ export default function MarketPage() {
     setMsg(null);
     try {
       const r = await api.refreshMarket();
-      setMsg(
-        `Fetched from ${r.sources.join(", ")} — ${r.indicators_ingested} new / ${r.indicators_updated} updated indicators, ${r.news_ingested} news (as of ${r.as_of}).`,
-      );
+      if (!r.reached_any && r.errors && r.errors.length > 0) {
+        // Nothing came back — show exactly which sources failed and why, so this is
+        // debuggable (usually the API server can't reach the internet).
+        setError(
+          "Couldn't reach the data sources from the server:\n" +
+            r.errors.map((x) => `• ${x.source}: ${x.error}`).join("\n"),
+        );
+      } else {
+        const parts = [
+          `Fetched from ${r.sources.join(", ") || "—"} — ${r.indicators_ingested} new / ${r.indicators_updated} updated indicators, ${r.news_ingested} news (as of ${r.as_of}).`,
+        ];
+        if (r.errors && r.errors.length > 0) {
+          parts.push(`Some sources were unreachable: ${r.errors.map((x) => x.source).join(", ")}.`);
+        }
+        setMsg(parts.join(" "));
+      }
       load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Refresh failed");
@@ -61,7 +74,9 @@ export default function MarketPage() {
           <span className="text-xs text-muted">Analyst or higher can refresh from sources.</span>
         )}
         {msg && <span className="text-xs text-green-700 dark:text-green-300">{msg}</span>}
-        {error && <span className="text-sm text-red-700">{error}</span>}
+        {error && (
+          <span className="whitespace-pre-line text-sm text-red-700">{error}</span>
+        )}
       </div>
 
       {!summary ? (
