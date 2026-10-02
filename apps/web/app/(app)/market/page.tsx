@@ -17,7 +17,22 @@ export default function MarketPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [checks, setChecks] = useState<import("@/lib/api").MarketSourceCheck[] | null>(null);
   const canRefresh = REFRESH_ROLES.includes(getRole() ?? "");
+
+  async function testSources() {
+    setBusy(true);
+    setError(null);
+    setMsg(null);
+    try {
+      const r = await api.marketDiagnostics();
+      setChecks(r.items);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Diagnostics failed");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   const load = () => api.marketSummary().then(setSummary).catch((e) => setError(e.message));
   useEffect(() => {
@@ -73,11 +88,48 @@ export default function MarketPage() {
         ) : (
           <span className="text-xs text-muted">Analyst or higher can refresh from sources.</span>
         )}
+        {canRefresh && (
+          <button
+            onClick={testSources}
+            disabled={busy}
+            className="rounded border border-line px-3 py-2 text-sm hover:bg-wash disabled:opacity-50"
+          >
+            Test data sources
+          </button>
+        )}
         {msg && <span className="text-xs text-green-700 dark:text-green-300">{msg}</span>}
         {error && (
           <span className="whitespace-pre-line text-sm text-red-700">{error}</span>
         )}
       </div>
+
+      {checks && (
+        <Card className="mb-4 p-3">
+          <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted">
+            Source connectivity (from your server)
+          </div>
+          <ul className="space-y-1 text-sm">
+            {checks.map((c) => (
+              <li key={c.source} className="flex items-center justify-between gap-3">
+                <span>
+                  <span className={c.ok ? "text-green-700 dark:text-green-300" : "text-red-700"}>
+                    {c.ok ? "✓" : "✗"}
+                  </span>{" "}
+                  {c.source}
+                </span>
+                <span className="text-[11px] text-muted">
+                  {c.status ? `HTTP ${c.status}` : ""}
+                  {c.error ? ` · ${c.error}` : ""} · {c.ms}ms
+                </span>
+              </li>
+            ))}
+          </ul>
+          <div className="mt-2 text-[11px] text-muted">
+            All ✗ → your API server has no outbound internet (fix egress on your host).
+            Some ✓ / some ✗ with HTTP 403 → that source is blocking your server&apos;s IP.
+          </div>
+        </Card>
+      )}
 
       {!summary ? (
         <div className="text-sm text-muted">Loading…</div>

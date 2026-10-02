@@ -195,6 +195,36 @@ def parse_rss(xml_text: str, limit: int = 15) -> list[MarketNews]:
     return out
 
 
+def diagnose_sources() -> list[dict]:
+    """Connectivity check from the server to each market-data source — isolates
+    'can the server reach the internet' from parsing. Returns per-source status."""
+    import time
+
+    checks = [
+        ("World Bank", _wb_url(WB_INDICATORS[0][3])),
+        ("FX (open.er-api.com)", FX_URL),
+        ("Google News", NEWS_URLS[0]),
+    ]
+    out: list[dict] = []
+    with _client() as c:
+        for name, url in checks:
+            t = time.monotonic()
+            try:
+                r = c.get(url)
+                ms = int((time.monotonic() - t) * 1000)
+                out.append({
+                    "source": name, "ok": bool(r.is_success), "status": r.status_code,
+                    "ms": ms, "error": None if r.is_success else f"HTTP {r.status_code}",
+                })
+            except Exception as e:  # noqa: BLE001 — report any failure verbatim
+                ms = int((time.monotonic() - t) * 1000)
+                out.append({
+                    "source": name, "ok": False, "status": None, "ms": ms,
+                    "error": f"{type(e).__name__}: {e}"[:200],
+                })
+    return out
+
+
 def _run(jobs: list, fn) -> list:
     """Run fn over jobs concurrently; if threads can't start (constrained/serverless
     host), fall back to running them one after another. Never raises."""

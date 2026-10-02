@@ -38,6 +38,19 @@ def refresh(
     return result
 
 
+@router.get("/market/diagnostics")
+def diagnostics(
+    db: Session = Depends(db_session),
+    _: User = Depends(require_role(Role.ANALYST)),
+) -> dict:
+    """Live connectivity test from the server to each market-data source, so an
+    unreachable source (egress blocked, DNS, or the source blocking the server's IP)
+    is obvious."""
+    from app.services.market_intelligence.live import diagnose_sources
+
+    return {"items": diagnose_sources(), "provider": "live"}
+
+
 @router.get("/market/indicators")
 def indicators(db: Session = Depends(db_session), _: User = Depends(get_current_user)) -> dict:
     return {"items": ingest.latest_indicators(db)}
