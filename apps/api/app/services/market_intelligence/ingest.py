@@ -86,12 +86,15 @@ def refresh_market_data(db: Session, provider: MarketDataProvider | None = None)
         news_new += 1
 
     db.commit()
+    errors = list(getattr(provider, "errors", []))
     return {
         "provider": provider.name,
         "indicators_ingested": ind_new,
         "indicators_updated": ind_updated,
         "news_ingested": news_new,
         "sources": sorted({p.source for p in indicators} | {n.source for n in news}),
+        "errors": errors,
+        "reached_any": bool(indicators or news),
         "as_of": date.today().isoformat(),
     }
 

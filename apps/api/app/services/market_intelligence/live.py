@@ -195,8 +195,30 @@ def parse_rss(xml_text: str, limit: int = 15) -> list[MarketNews]:
     return out
 
 
+def _run(jobs: list, fn) -> list:
+    """Run fn over jobs concurrently; if threads can't start (constrained/serverless
+    host), fall back to running them one after another. Never raises."""
+    try:
+        with ThreadPoolExecutor(max_workers=_MAX_WORKERS) as ex:
+            return list(ex.map(fn, jobs))
+    except (RuntimeError, OSError) as e:  # e.g. "can't start new thread"
+        logger.warning("thread pool unavailable (%s) — fetching sequentially", e)
+        return [fn(j) for j in jobs]
+
+
 class LiveMarketProvider:
     name = "live"
+
+    def __init__(self) -> None:
+        # Per-source failures collected during a refresh, surfaced to the UI so the
+        # owner can see exactly which source is unreachable (and why) rather than a
+        # blanket error.
+        self.errors: list[dict] = []
+
+    def _note_error(self, source: str, exc: Exception) -> None:
+        kind = type(exc).__name__
+        self.errors.append({"source": source, "error": f"{kind}: {exc}"[:300]})
+        logger.warning("%s fetch failed: %s: %s", source, kind, exc)
 
     def fetch_indicators(self) -> list[EconomicPoint]:
         points: list[EconomicPoint] = []
@@ -205,25 +227,23 @@ class LiveMarketProvider:
                 key, label, unit, code = args
                 try:
                     return ("wb", parse_worldbank(key, label, unit, client.get(_wb_url(code)).json()))
-                except (httpx.HTTPError, ValueError) as e:
-                    logger.warning("World Bank fetch failed for %s: %s", code, e)
+                except Exception as e:  # noqa: BLE001 — isolate a single source's failure
+                    self._note_error(f"World Bank ({code})", e)
                     return ("wb", None)
 
             def fx(_):
                 try:
                     return ("fx", parse_fx(client.get(FX_URL).json()))
-                except (httpx.HTTPError, ValueError) as e:
-                    logger.warning("FX fetch failed: %s", e)
+                except Exception as e:  # noqa: BLE001
+                    self._note_error("FX (open.er-api.com)", e)
                     return ("fx", [])
 
-            # All indicator sources fetched in parallel, bounded by _TIMEOUT each.
             jobs = [(wb, a) for a in WB_INDICATORS] + [(fx, None)]
-            with ThreadPoolExecutor(max_workers=_MAX_WORKERS) as ex:
-                for kind, result in ex.map(lambda j: j[0](j[1]), jobs):
-                    if kind == "wb" and result is not None:
-                        points.append(result)
-                    elif kind == "fx":
-                        points.extend(result)
+            for kind, result in _run(jobs, lambda j: j[0](j[1])):
+                if kind == "wb" and result is not None:
+                    points.append(result)
+                elif kind == "fx":
+                    points.extend(result)
         return points
 
     def fetch_news(self) -> list[MarketNews]:
@@ -233,14 +253,11 @@ class LiveMarketProvider:
             def fetch(url):
                 try:
                     return parse_rss(c.get(url).text)
-                except httpx.HTTPError as e:
-                    logger.warning("News fetch failed for %s: %s", url, e)
+                except Exception as e:  # noqa: BLE001
+                    self._note_error("Google News", e)
                     return []
 
-            # Both feeds in parallel; merge, filter and dedup afterwards.
-            with ThreadPoolExecutor(max_workers=_MAX_WORKERS) as ex:
-                batches = list(ex.map(fetch, NEWS_URLS))
-            for batch in batches:
+            for batch in _run(NEWS_URLS, fetch):
                 for n in batch:
                     # Drop off-topic headlines; dedup near-duplicates (same story
                     # from different publishers share a normalised title).
