@@ -19,6 +19,7 @@ from app.models.idempotency import IdempotencyKey  # noqa: F401
 from app.models.inventory import Inventory  # noqa: F401
 from app.models.invoice import Invoice, InvoiceLine, InvoiceVersion  # noqa: F401
 from app.models.organization import Branch, Employee  # noqa: F401
+from app.models.knowledge import KbArticle, KbArticleVersion  # noqa: F401
 from app.models.location import UserLocation  # noqa: F401
 from app.models.payment import Payment  # noqa: F401
 from app.models.pos import ExpectedPosPayment, PosTransaction  # noqa: F401
@@ -61,6 +62,8 @@ __all__ = [
     "ExpectedPosPayment",
     "PosTransaction",
     "UserLocation",
+    "KbArticle",
+    "KbArticleVersion",
     "Purchase",
     "SupplierPayment",
     "PurchaseLine",

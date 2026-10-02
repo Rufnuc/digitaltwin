@@ -484,6 +484,21 @@ export const api = {
   locationsLatest: () => request<{ items: UserLocationLatest[] }>("/locations/latest"),
   locationHistory: (userId: number, limit = 200) =>
     request<{ items: UserLocationPoint[] }>(`/locations/users/${userId}/history?limit=${limit}`),
+  // ---- Knowledgebase ----
+  kbArticles: (params = "") =>
+    request<{ items: KbArticleListItem[]; categories: string[] }>(`/kb/articles${params}`),
+  kbArticle: (id: number) => request<KbArticleDetail>(`/kb/articles/${id}`),
+  kbCreateArticle: (body: { title: string; body: string; category?: string | null }) =>
+    request<KbArticleDetail>("/kb/articles", { method: "POST", body: JSON.stringify(body) }),
+  kbUpdateArticle: (
+    id: number,
+    body: { title?: string; body?: string; category?: string | null; change_note?: string | null },
+  ) => request<KbArticleDetail>(`/kb/articles/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  kbVersions: (id: number) => request<{ items: KbVersion[] }>(`/kb/articles/${id}/versions`),
+  kbRestore: (id: number, versionNo: number) =>
+    request<KbArticleDetail>(`/kb/articles/${id}/restore/${versionNo}`, { method: "POST" }),
+  kbArchive: (id: number) =>
+    request<Record<string, unknown>>(`/kb/articles/${id}/archive`, { method: "POST" }),
   cashFlow: (days = 30) => request<CashFlow>(`/cashflow/summary?days=${days}`),
   payablesSummary: () => request<PayablesSummary>("/payables/summary"),
   taxSummary: (params = "") => request<TaxSummary>(`/tax/summary${params}`),
@@ -1053,6 +1068,27 @@ export interface PosSuggestion {
   customer_name: string;
   balance: number;
   score: number;
+}
+export interface KbArticleListItem {
+  id: number;
+  title: string;
+  category: string | null;
+  version_no: number;
+  updated_by: string | null;
+  updated_at: string | null;
+  archived: boolean;
+}
+export interface KbArticleDetail extends KbArticleListItem {
+  body: string;
+  created_by: string | null;
+}
+export interface KbVersion {
+  version_no: number;
+  title: string;
+  body: string;
+  change_note: string | null;
+  changed_by: string | null;
+  changed_at: string | null;
 }
 export interface UserLocationLatest {
   user_id: number;
