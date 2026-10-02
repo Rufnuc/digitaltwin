@@ -456,6 +456,25 @@ export const api = {
     }),
   customerStatement: (customerId: number) =>
     request<CustomerStatement>(`/receivables/customers/${customerId}/statement`),
+  // ---- POS reconciliation ----
+  posExpect: (body: { invoice_id: number; amount: number; terminal_id?: string | null }) =>
+    request<{ status: string; expected_id: number; expires_at: string }>("/pos/expect", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  posCharge: (body: { invoice_id: number; amount: number; terminal_id: string }) =>
+    request<{ status: string; expected_id: number; pushed: boolean; message: string | null }>(
+      "/pos/charge",
+      { method: "POST", body: JSON.stringify(body) },
+    ),
+  posUnmatched: () => request<{ items: PosUnmatched[] }>("/pos/unmatched"),
+  posAssign: (txnId: number, invoiceId: number) =>
+    request<Record<string, unknown>>(`/pos/transactions/${txnId}/assign`, {
+      method: "POST",
+      body: JSON.stringify({ invoice_id: invoiceId }),
+    }),
+  posIgnore: (txnId: number) =>
+    request<Record<string, unknown>>(`/pos/transactions/${txnId}/ignore`, { method: "POST" }),
   cashFlow: (days = 30) => request<CashFlow>(`/cashflow/summary?days=${days}`),
   payablesSummary: () => request<PayablesSummary>("/payables/summary"),
   taxSummary: (params = "") => request<TaxSummary>(`/tax/summary${params}`),
@@ -1018,6 +1037,24 @@ export interface InvoiceDetail {
     unit_price: number;
     line_total: number;
   }[];
+}
+export interface PosSuggestion {
+  invoice_id: number;
+  invoice_number: string;
+  customer_name: string;
+  balance: number;
+  score: number;
+}
+export interface PosUnmatched {
+  id: number;
+  provider: string;
+  amount: number;
+  terminal_id: string | null;
+  reference: string | null;
+  masked_pan: string | null;
+  occurred_at: string | null;
+  received_at: string | null;
+  suggestions: PosSuggestion[];
 }
 export interface InvoicePayment {
   id: number;

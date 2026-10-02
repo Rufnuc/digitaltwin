@@ -78,6 +78,18 @@ class Settings(BaseSettings):
     # live FX, Google News) on refresh; reads come from the DB. "none" disables it.
     MARKET_DATA_PROVIDER: str = "live"
 
+    # POS reconciliation (card terminals). "moniepoint" enables the Moniepoint
+    # webhook + push-to-terminal adapter; "none" disables auto-receiving (manual only).
+    # Credentials come from env/.env, never committed.
+    POS_PROVIDER: str = "none"
+    MONIEPOINT_WEBHOOK_SECRET: str = ""   # HMAC secret to verify incoming webhooks
+    MONIEPOINT_API_KEY: str = ""          # bearer/api key for push-to-terminal
+    MONIEPOINT_PUSH_URL: str = ""         # endpoint that pops an amount on a terminal
+    # How long an "expect POS payment" stays open to be matched (minutes), and the
+    # +/- time window used to auto-match an incoming transaction to an expectation.
+    POS_EXPECT_TTL_MINUTES: int = 30
+    POS_MATCH_WINDOW_MINUTES: int = 20
+
     # Shipping monitor (aisstream.io live AIS vessel data). Key from env/.env only,
     # never committed. When set, a background task streams vessel positions for the
     # China→Nigeria trade lanes; empty disables the feature.

@@ -277,6 +277,7 @@ function InvoiceDrawer({
   const [versions, setVersions] = useState<InvoiceVersionRow[]>([]);
   const [editing, setEditing] = useState(false);
   const [paying, setPaying] = useState(false);
+  const [posCharging, setPosCharging] = useState(false);
   const [returning, setReturning] = useState(false);
   const canEdit = roleAtLeast(getRole(), "MANAGER") || isSalesgirl(getRole());
 
@@ -397,13 +398,21 @@ function InvoiceDrawer({
                   ))}
                 </div>
               )}
-              {(inv.balance ?? 0) > 0 && (
-                <button
-                  onClick={() => setPaying(true)}
-                  className="mt-2 rounded border border-line px-3 py-1.5 text-xs hover:bg-wash"
-                >
-                  Record payment
-                </button>
+              {(inv.balance ?? 0) > 0 && !inv.voided_at && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <button
+                    onClick={() => setPaying(true)}
+                    className="rounded border border-line px-3 py-1.5 text-xs hover:bg-wash"
+                  >
+                    Record payment
+                  </button>
+                  <button
+                    onClick={() => setPosCharging(true)}
+                    className="rounded border border-line px-3 py-1.5 text-xs hover:bg-wash"
+                  >
+                    Charge on POS (Moniepoint)
+                  </button>
+                </div>
               )}
             </div>
 
@@ -587,6 +596,17 @@ function InvoiceDrawer({
                 onClose={() => setReturning(false)}
                 onDone={async () => {
                   setReturning(false);
+                  await reload();
+                  onChanged();
+                }}
+              />
+            )}
+            {posCharging && (
+              <PosChargeModal
+                inv={inv}
+                onClose={() => setPosCharging(false)}
+                onDone={async () => {
+                  setPosCharging(false);
                   await reload();
                   onChanged();
                 }}
@@ -856,6 +876,111 @@ function ReturnModal({
               className="rounded bg-ink px-3 py-1.5 text-sm font-medium text-paper disabled:opacity-40"
             >
               {busy ? "Processing…" : "Process return"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PosChargeModal({
+  inv,
+  onClose,
+  onDone,
+}: {
+  inv: InvoiceDetail;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const balance = inv.balance ?? inv.total - (inv.amount_paid ?? 0);
+  const [amount, setAmount] = useState(String(balance));
+  const [terminalId, setTerminalId] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  async function run(push: boolean) {
+    const amt = Number(amount);
+    if (!amt || amt <= 0) {
+      setErr("Enter a positive amount");
+      return;
+    }
+    setBusy(true);
+    setErr(null);
+    setMsg(null);
+    try {
+      if (push) {
+        if (!terminalId.trim()) {
+          setErr("Enter the terminal ID to push to, or use 'Expect only'.");
+          setBusy(false);
+          return;
+        }
+        const r = await api.posCharge({ invoice_id: inv.id, amount: amt, terminal_id: terminalId.trim() });
+        if (r.pushed) {
+          setMsg("Sent to the terminal — ask the customer to pay. It will link automatically.");
+        } else {
+          setMsg(r.message || "Expecting this payment; it will link automatically when charged.");
+        }
+      } else {
+        await api.posExpect({ invoice_id: inv.id, amount: amt, terminal_id: terminalId.trim() || null });
+        setMsg("Expecting this payment on the POS — it will link automatically when charged.");
+      }
+      // Give the cashier a moment to read the confirmation, then close.
+      setTimeout(onDone, 1200);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Could not start the POS charge");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4" onMouseDown={onClose}>
+      <div className="w-full max-w-sm" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="rounded-lg border border-line bg-paper p-4 shadow-xl">
+          <div className="mb-1 text-sm font-medium">Charge on POS (Moniepoint)</div>
+          <div className="mb-3 text-xs text-muted">
+            {inv.invoice_number} · balance {money2(balance)}. Full or part payment both work.
+          </div>
+          <label className="mb-2 block text-xs">
+            Amount (₦)
+            <input
+              type="number"
+              step="0.01"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              className="mt-1 w-full rounded border border-line px-3 py-2 text-sm"
+            />
+          </label>
+          <label className="mb-2 block text-xs">
+            Terminal ID (for push; optional if the terminal is used directly)
+            <input
+              value={terminalId}
+              onChange={(e) => setTerminalId(e.target.value)}
+              placeholder="e.g. your Moniepoint terminal serial"
+              className="mt-1 w-full rounded border border-line px-3 py-2 text-sm"
+            />
+          </label>
+          {msg && <div className="mb-2 text-xs text-green-700 dark:text-green-300">{msg}</div>}
+          {err && <div className="mb-2 text-xs text-red-700">{err}</div>}
+          <div className="flex flex-wrap justify-end gap-2">
+            <button onClick={onClose} className="rounded border border-line px-3 py-1.5 text-sm hover:bg-wash">
+              Cancel
+            </button>
+            <button
+              onClick={() => run(false)}
+              disabled={busy}
+              className="rounded border border-line px-3 py-1.5 text-sm hover:bg-wash disabled:opacity-40"
+            >
+              Expect only
+            </button>
+            <button
+              onClick={() => run(true)}
+              disabled={busy}
+              className="rounded bg-ink px-3 py-1.5 text-sm font-medium text-paper disabled:opacity-40"
+            >
+              {busy ? "Sending…" : "Push to terminal"}
             </button>
           </div>
         </div>
