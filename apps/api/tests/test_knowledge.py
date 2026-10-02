@@ -45,3 +45,23 @@ def test_staff_cannot_access_knowledgebase(client, auth_headers):
     r = client.post("/api/v1/kb/articles", headers=auth_headers("STAFF"),
                     json={"title": "x", "body": "y"})
     assert r.status_code == 403
+
+
+def test_seed_kb_history_creates_dated_changelog(client, auth_headers, db):
+    from scripts.seed_kb_history import COMMITS, seed
+    assert seed(db) .startswith("seeded")
+    # Idempotent: running again does nothing.
+    assert seed(db) == "exists"
+
+    h = auth_headers("MANAGER")
+    arts = client.get("/api/v1/kb/articles?include_archived=true", headers=h).json()["items"]
+    changelog = next(a for a in arts if a["title"] == "Development Changelog")
+    assert changelog["version_no"] == len(COMMITS)
+
+    versions = client.get(f"/api/v1/kb/articles/{changelog['id']}/versions", headers=h).json()["items"]
+    assert len(versions) == len(COMMITS)
+    # Versions carry the REAL commit dates (earliest is 2026-09-15).
+    earliest = min(v["changed_at"][:10] for v in versions)
+    latest = max(v["changed_at"][:10] for v in versions)
+    assert earliest == "2026-09-15"
+    assert latest == "2026-10-02"
