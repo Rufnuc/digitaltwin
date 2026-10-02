@@ -18,6 +18,7 @@ from app.api.v1.endpoints import (
     impact,
     imports,
     invoices,
+    locations,
     market,
     meta,
     notifications,
@@ -70,6 +71,7 @@ api_router.include_router(notifications.router)
 api_router.include_router(receivables.router)
 api_router.include_router(payables.router)
 api_router.include_router(pos.router)
+api_router.include_router(locations.router)
 api_router.include_router(cashflow.router)
 api_router.include_router(tax.router)
 api_router.include_router(traceability.router)

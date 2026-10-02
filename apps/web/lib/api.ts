@@ -475,6 +475,15 @@ export const api = {
     }),
   posIgnore: (txnId: number) =>
     request<Record<string, unknown>>(`/pos/transactions/${txnId}/ignore`, { method: "POST" }),
+  // ---- GIS / location tracking ----
+  locationPing: (body: { lat: number; lng: number; accuracy?: number | null }) =>
+    request<Record<string, unknown>>("/locations/ping", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  locationsLatest: () => request<{ items: UserLocationLatest[] }>("/locations/latest"),
+  locationHistory: (userId: number, limit = 200) =>
+    request<{ items: UserLocationPoint[] }>(`/locations/users/${userId}/history?limit=${limit}`),
   cashFlow: (days = 30) => request<CashFlow>(`/cashflow/summary?days=${days}`),
   payablesSummary: () => request<PayablesSummary>("/payables/summary"),
   taxSummary: (params = "") => request<TaxSummary>(`/tax/summary${params}`),
@@ -1044,6 +1053,21 @@ export interface PosSuggestion {
   customer_name: string;
   balance: number;
   score: number;
+}
+export interface UserLocationLatest {
+  user_id: number;
+  user_name: string;
+  role: string;
+  lat: number;
+  lng: number;
+  accuracy: number | null;
+  recorded_at: string | null;
+}
+export interface UserLocationPoint {
+  lat: number;
+  lng: number;
+  accuracy: number | null;
+  recorded_at: string | null;
 }
 export interface PosFlag {
   type: string;
