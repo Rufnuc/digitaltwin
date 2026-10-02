@@ -63,6 +63,7 @@ const NAV: NavSection[] = [
     items: [
       { href: "/imports", label: "Imports", minRole: "STAFF" },
       { href: "/documents", label: "Documents", minRole: "STAFF" },
+      { href: "/knowledge", label: "Knowledgebase", minRole: "MANAGER" },
       { href: "/activity", label: "Activity Log", minRole: "ANALYST" },
       { href: "/settings", label: "Settings" },
     ],
