@@ -4,6 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import React, { useEffect, useState } from "react";
 import { api, clearSession, getRole, getToken, setSession } from "@/lib/api";
 import { NotificationBell } from "@/components/NotificationBell";
+import { LocationTracker } from "@/components/LocationTracker";
 import { type Role, roleAtLeast, isSalesgirl, SALESGIRL_PAGES } from "@/lib/roles";
 import { getStoredTheme, resolveDark, setTheme } from "@/lib/theme";
 
@@ -29,6 +30,7 @@ const NAV: NavSection[] = [
       { href: "/waybills", label: "Waybills", minRole: "STAFF" },
       { href: "/receivables", label: "Receivables", minRole: "STAFF" },
       { href: "/pos", label: "POS Payments", minRole: "STAFF" },
+      { href: "/team-map", label: "Team Map", minRole: "MANAGER" },
       { href: "/cashflow", label: "Cash Flow", minRole: "MANAGER" },
       { href: "/tax", label: "Tax", minRole: "MANAGER" },
     ],
@@ -230,6 +232,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
       <main className={`transition-all duration-200 ${open ? "md:ml-60" : "ml-0"}`}>
         <div className="mx-auto max-w-6xl p-4 sm:p-6">{children}</div>
       </main>
+      <LocationTracker />
     </div>
   );
 }

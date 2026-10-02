@@ -78,6 +78,14 @@ class Settings(BaseSettings):
     # live FX, Google News) on refresh; reads come from the DB. "none" disables it.
     MARKET_DATA_PROVIDER: str = "live"
 
+    # GIS / user location tracking. Store a new fix when the user moves at least
+    # GEO_MIN_MOVE_METERS or GEO_MIN_INTERVAL_SECONDS has passed; write an activity-log
+    # entry when they move at least GEO_LOG_MOVE_METERS (a meaningful move).
+    GEO_TRACKING_ENABLED: bool = True
+    GEO_MIN_MOVE_METERS: float = 25.0
+    GEO_LOG_MOVE_METERS: float = 100.0
+    GEO_MIN_INTERVAL_SECONDS: int = 300
+
     # POS reconciliation (card terminals). "moniepoint" enables the Moniepoint
     # webhook + push-to-terminal adapter; "none" disables auto-receiving (manual only).
     # Credentials come from env/.env, never committed.
