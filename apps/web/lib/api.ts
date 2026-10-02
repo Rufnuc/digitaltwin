@@ -430,6 +430,8 @@ export const api = {
   marketEvents: (minRelevance = 0) =>
     request<{ items: MarketNews[] }>(`/market/events?min_relevance=${minRelevance}&limit=30`),
   refreshMarket: () => request<MarketRefreshResult>("/market/refresh", { method: "POST" }),
+  marketDiagnostics: () =>
+    request<{ items: MarketSourceCheck[]; provider: string }>("/market/diagnostics"),
 
   // ---- Phase 7: news -> business impact ----
   impactScan: (createAlerts = true, assumptions: Record<string, number> = {}) =>
@@ -1354,6 +1356,13 @@ export interface MarketRefreshResult {
   errors?: { source: string; error: string }[];
   reached_any?: boolean;
   as_of: string;
+}
+export interface MarketSourceCheck {
+  source: string;
+  ok: boolean;
+  status: number | null;
+  ms: number;
+  error: string | null;
 }
 
 // ---- Phase 5 types ----
