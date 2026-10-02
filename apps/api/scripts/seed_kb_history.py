@@ -16,7 +16,7 @@ from app.db.session import SessionLocal
 from app.models.knowledge import KbArticle, KbArticleVersion
 from app.models.user import User
 
-CONTENT_VERSION = "3"
+CONTENT_VERSION = "4"
 CHANGELOG_TITLE = "Development Changelog"
 
 # (ISO timestamp, short title, detailed description) — the real commit history.
@@ -258,7 +258,7 @@ def _changelog_body() -> str:
 
 
 def _upsert(db, *, title: str, category: str, body: str, author_id: int | None,
-            versions: list[tuple[str | None, str, str]]) -> str:
+            versions: list[tuple[str | None, str, str]], internal: bool = False) -> str:
     """Create or refresh a seeded article. Never clobbers a human article (seed_tag NULL)."""
     existing = db.scalar(select(KbArticle).where(KbArticle.title == title))
     if existing is not None:
@@ -270,7 +270,7 @@ def _upsert(db, *, title: str, category: str, body: str, author_id: int | None,
         db.flush()
 
     art = KbArticle(title=title, category=category, body=body, seed_tag=CONTENT_VERSION,
-                    version_no=len(versions) or 1,
+                    internal=internal, version_no=len(versions) or 1,
                     created_by_user_id=author_id, updated_by_user_id=author_id)
     db.add(art)
     db.flush()
@@ -294,7 +294,7 @@ def seed(db) -> dict:
     results: dict[str, str] = {}
     results[CHANGELOG_TITLE] = _upsert(
         db, title=CHANGELOG_TITLE, category="Build History", body=_changelog_body(),
-        author_id=author_id,
+        author_id=author_id, internal=True,  # developer-only: owner never sees this
         versions=[(iso, title, detail) for iso, title, detail in COMMITS],
     )
     for title, category, body in GUIDES:

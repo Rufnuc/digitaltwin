@@ -170,6 +170,16 @@ class Settings(BaseSettings):
             return [o.strip() for o in s.split(",") if o.strip()]  # comma-separated form
         return v
 
+    # Developer/vendor accounts (the person who builds & supplies the software). These
+    # accounts — identified by email, independent of business role — can see "internal"
+    # knowledgebase articles (e.g. the development changelog) that the business owner and
+    # staff never see. Comma-separated emails; override via env.
+    DEVELOPER_EMAILS: str = "israelegede@gmail.com"
+
+    @property
+    def developer_emails(self) -> set[str]:
+        return {e.strip().lower() for e in (self.DEVELOPER_EMAILS or "").split(",") if e.strip()}
+
     @property
     def is_sqlite(self) -> bool:
         return self.DATABASE_URL.startswith("sqlite")

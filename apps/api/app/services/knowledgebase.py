@@ -43,9 +43,10 @@ def _clean_tags(tags) -> list[str]:
 
 
 def create_article(db: Session, *, title: str, body: str, category: str | None,
-                   user_id: int | None, tags: list[str] | None = None) -> KbArticle:
+                   user_id: int | None, tags: list[str] | None = None,
+                   internal: bool = False) -> KbArticle:
     art = KbArticle(title=title, body=body or "", category=category,
-                    tags=_clean_tags(tags), version_no=1,
+                    tags=_clean_tags(tags), internal=internal, version_no=1,
                     created_by_user_id=user_id, updated_by_user_id=user_id)
     db.add(art)
     db.flush()
@@ -60,7 +61,8 @@ def create_article(db: Session, *, title: str, body: str, category: str | None,
 
 def update_article(db: Session, *, article_id: int, title: str | None, body: str | None,
                    category: str | None, note: str | None, user_id: int | None,
-                   tags: list[str] | None = None) -> KbArticle | None:
+                   tags: list[str] | None = None,
+                   internal: bool | None = None) -> KbArticle | None:
     art = db.get(KbArticle, article_id)
     if art is None:
         return None
@@ -72,6 +74,8 @@ def update_article(db: Session, *, article_id: int, title: str | None, body: str
         art.category = category
     if tags is not None:
         art.tags = _clean_tags(tags)
+    if internal is not None:
+        art.internal = internal
     art.version_no += 1
     art.updated_by_user_id = user_id
     db.flush()
@@ -164,10 +168,13 @@ def record_feedback(db: Session, *, article_id: int, user_id: int, helpful: bool
 
 
 def list_articles(db: Session, *, q: str | None = None, category: str | None = None,
-                  tag: str | None = None, include_archived: bool = False) -> tuple[list[dict], list[str], list[str]]:
+                  tag: str | None = None, include_archived: bool = False,
+                  is_dev: bool = False) -> tuple[list[dict], list[str], list[str]]:
     stmt = select(KbArticle)
     if not include_archived:
         stmt = stmt.where(KbArticle.archived_at.is_(None))
+    if not is_dev:
+        stmt = stmt.where(KbArticle.internal.is_(False))  # hide dev-only articles
     if q:
         like = f"%{q}%"
         stmt = stmt.where(KbArticle.title.ilike(like) | KbArticle.body.ilike(like))
@@ -184,7 +191,7 @@ def list_articles(db: Session, *, q: str | None = None, category: str | None = N
     all_tags = sorted({t for a in rows for t in (a.tags or [])})
     items = [{
         "id": a.id, "title": a.title, "category": a.category, "tags": a.tags or [],
-        "excerpt": _excerpt(a.body), "pinned": bool(a.pinned),
+        "excerpt": _excerpt(a.body), "pinned": bool(a.pinned), "internal": bool(a.internal),
         "version_no": a.version_no,
         "helpful_yes": a.helpful_yes or 0, "helpful_no": a.helpful_no or 0,
         "updated_by": names.get(a.updated_by_user_id),
@@ -194,10 +201,13 @@ def list_articles(db: Session, *, q: str | None = None, category: str | None = N
     return items, sorted(cats), all_tags
 
 
-def get_article(db: Session, article_id: int, *, user_id: int | None = None) -> dict | None:
+def get_article(db: Session, article_id: int, *, user_id: int | None = None,
+                is_dev: bool = False) -> dict | None:
     a = db.get(KbArticle, article_id)
     if a is None:
         return None
+    if a.internal and not is_dev:
+        return None  # developer-only article is invisible to the owner/staff
     names = _user_names(db)
     my_vote = None
     if user_id is not None:
@@ -208,6 +218,7 @@ def get_article(db: Session, article_id: int, *, user_id: int | None = None) -> 
     return {
         "id": a.id, "title": a.title, "category": a.category, "tags": a.tags or [],
         "body": a.body, "version_no": a.version_no, "pinned": bool(a.pinned),
+        "internal": bool(a.internal),
         "helpful_yes": a.helpful_yes or 0, "helpful_no": a.helpful_no or 0,
         "my_vote": my_vote,
         "created_by": names.get(a.created_by_user_id),
