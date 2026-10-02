@@ -5,7 +5,17 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin
@@ -17,8 +27,12 @@ class KbArticle(Base, TimestampMixin):
     id: Mapped[int] = mapped_column(primary_key=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     category: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
+    tags: Mapped[list | None] = mapped_column(JSON, default=list)  # list[str]
     body: Mapped[str] = mapped_column(Text, default="")
     version_no: Mapped[int] = mapped_column(Integer, default=1)
+    pinned: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    helpful_yes: Mapped[int] = mapped_column(Integer, default=0)
+    helpful_no: Mapped[int] = mapped_column(Integer, default=0)
     # Marks an article created by the content seed (and which seed version), so the
     # seed can refresh its own articles on deploy without touching human-written ones.
     seed_tag: Mapped[str | None] = mapped_column(String(32), index=True, nullable=True)
@@ -30,6 +44,23 @@ class KbArticle(Base, TimestampMixin):
 
     versions: Mapped[list[KbArticleVersion]] = relationship(
         back_populates="article", cascade="all, delete-orphan"
+    )
+
+
+class KbFeedback(Base):
+    """One 'was this helpful?' vote per user per article (changeable)."""
+
+    __tablename__ = "kb_feedback"
+    __table_args__ = (UniqueConstraint("article_id", "user_id", name="uq_kb_feedback_user"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    article_id: Mapped[int] = mapped_column(
+        ForeignKey("kb_articles.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    user_id: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
+    helpful: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
     )
 
 

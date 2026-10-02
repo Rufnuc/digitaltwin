@@ -488,19 +488,32 @@ export const api = {
     request<{ items: UserLocationPoint[] }>(`/locations/users/${userId}/history?limit=${limit}`),
   // ---- Knowledgebase ----
   kbArticles: (params = "") =>
-    request<{ items: KbArticleListItem[]; categories: string[] }>(`/kb/articles${params}`),
+    request<{ items: KbArticleListItem[]; categories: string[]; tags: string[] }>(`/kb/articles${params}`),
   kbArticle: (id: number) => request<KbArticleDetail>(`/kb/articles/${id}`),
-  kbCreateArticle: (body: { title: string; body: string; category?: string | null }) =>
+  kbCreateArticle: (body: { title: string; body: string; category?: string | null; tags?: string[] }) =>
     request<KbArticleDetail>("/kb/articles", { method: "POST", body: JSON.stringify(body) }),
   kbUpdateArticle: (
     id: number,
-    body: { title?: string; body?: string; category?: string | null; change_note?: string | null },
+    body: { title?: string; body?: string; category?: string | null; tags?: string[]; change_note?: string | null },
   ) => request<KbArticleDetail>(`/kb/articles/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   kbVersions: (id: number) => request<{ items: KbVersion[] }>(`/kb/articles/${id}/versions`),
-  kbRestore: (id: number, versionNo: number) =>
-    request<KbArticleDetail>(`/kb/articles/${id}/restore/${versionNo}`, { method: "POST" }),
   kbArchive: (id: number) =>
     request<Record<string, unknown>>(`/kb/articles/${id}/archive`, { method: "POST" }),
+  kbPin: (id: number, pinned: boolean) =>
+    request<Record<string, unknown>>(`/kb/articles/${id}/pin`, {
+      method: "POST",
+      body: JSON.stringify({ pinned }),
+    }),
+  kbFeedback: (id: number, helpful: boolean) =>
+    request<{ helpful_yes: number; helpful_no: number; my_vote: boolean }>(
+      `/kb/articles/${id}/feedback`,
+      { method: "POST", body: JSON.stringify({ helpful }) },
+    ),
+  kbUploadImage: async (file: File): Promise<{ key: string; url: string }> => {
+    const fd = new FormData();
+    fd.append("file", file);
+    return requestForm<{ key: string; url: string }>("/kb/images", fd);
+  },
   cashFlow: (days = 30) => request<CashFlow>(`/cashflow/summary?days=${days}`),
   payablesSummary: () => request<PayablesSummary>("/payables/summary"),
   taxSummary: (params = "") => request<TaxSummary>(`/tax/summary${params}`),
@@ -1075,8 +1088,12 @@ export interface KbArticleListItem {
   id: number;
   title: string;
   category: string | null;
+  tags: string[];
   excerpt?: string;
+  pinned: boolean;
   version_no: number;
+  helpful_yes: number;
+  helpful_no: number;
   updated_by: string | null;
   updated_at: string | null;
   archived: boolean;
@@ -1084,6 +1101,7 @@ export interface KbArticleListItem {
 export interface KbArticleDetail extends KbArticleListItem {
   body: string;
   created_by: string | null;
+  my_vote: boolean | null;
 }
 export interface KbVersion {
   version_no: number;

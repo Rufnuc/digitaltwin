@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models.knowledge import KbArticle, KbArticleVersion
+from app.models.knowledge import KbArticle, KbArticleVersion, KbFeedback
 from app.models.user import User
 from app.services import audit
 
@@ -36,9 +36,16 @@ def _snapshot(db: Session, art: KbArticle, *, user_id: int | None, note: str | N
     ))
 
 
+def _clean_tags(tags) -> list[str]:
+    if not tags:
+        return []
+    return [t.strip() for t in tags if isinstance(t, str) and t.strip()][:12]
+
+
 def create_article(db: Session, *, title: str, body: str, category: str | None,
-                   user_id: int | None) -> KbArticle:
-    art = KbArticle(title=title, body=body or "", category=category, version_no=1,
+                   user_id: int | None, tags: list[str] | None = None) -> KbArticle:
+    art = KbArticle(title=title, body=body or "", category=category,
+                    tags=_clean_tags(tags), version_no=1,
                     created_by_user_id=user_id, updated_by_user_id=user_id)
     db.add(art)
     db.flush()
@@ -52,7 +59,8 @@ def create_article(db: Session, *, title: str, body: str, category: str | None,
 
 
 def update_article(db: Session, *, article_id: int, title: str | None, body: str | None,
-                   category: str | None, note: str | None, user_id: int | None) -> KbArticle | None:
+                   category: str | None, note: str | None, user_id: int | None,
+                   tags: list[str] | None = None) -> KbArticle | None:
     art = db.get(KbArticle, article_id)
     if art is None:
         return None
@@ -62,6 +70,8 @@ def update_article(db: Session, *, article_id: int, title: str | None, body: str
         art.body = body
     if category is not None:
         art.category = category
+    if tags is not None:
+        art.tags = _clean_tags(tags)
     art.version_no += 1
     art.updated_by_user_id = user_id
     db.flush()
@@ -115,8 +125,46 @@ def archive_article(db: Session, *, article_id: int, user_id: int | None) -> boo
     return True
 
 
+def set_pinned(db: Session, *, article_id: int, pinned: bool, user_id: int | None) -> bool:
+    art = db.get(KbArticle, article_id)
+    if art is None:
+        return False
+    art.pinned = pinned
+    audit.record(db, action="KB_EDIT", user_id=user_id, entity_type="kb_article",
+                 entity_id=art.id,
+                 summary=f"Knowledgebase: {'pinned' if pinned else 'unpinned'} '{art.title}'",
+                 commit=False)
+    db.commit()
+    return True
+
+
+def record_feedback(db: Session, *, article_id: int, user_id: int, helpful: bool) -> dict | None:
+    art = db.get(KbArticle, article_id)
+    if art is None:
+        return None
+    existing = db.scalar(select(KbFeedback).where(
+        KbFeedback.article_id == article_id, KbFeedback.user_id == user_id
+    ))
+    if existing is None:
+        db.add(KbFeedback(article_id=article_id, user_id=user_id, helpful=helpful))
+        if helpful:
+            art.helpful_yes = (art.helpful_yes or 0) + 1
+        else:
+            art.helpful_no = (art.helpful_no or 0) + 1
+    elif existing.helpful != helpful:
+        existing.helpful = helpful
+        if helpful:
+            art.helpful_yes = (art.helpful_yes or 0) + 1
+            art.helpful_no = max(0, (art.helpful_no or 0) - 1)
+        else:
+            art.helpful_no = (art.helpful_no or 0) + 1
+            art.helpful_yes = max(0, (art.helpful_yes or 0) - 1)
+    db.commit()
+    return {"helpful_yes": art.helpful_yes, "helpful_no": art.helpful_no, "my_vote": helpful}
+
+
 def list_articles(db: Session, *, q: str | None = None, category: str | None = None,
-                  include_archived: bool = False) -> list[dict]:
+                  tag: str | None = None, include_archived: bool = False) -> tuple[list[dict], list[str], list[str]]:
     stmt = select(KbArticle)
     if not include_archived:
         stmt = stmt.where(KbArticle.archived_at.is_(None))
@@ -125,29 +173,43 @@ def list_articles(db: Session, *, q: str | None = None, category: str | None = N
         stmt = stmt.where(KbArticle.title.ilike(like) | KbArticle.body.ilike(like))
     if category:
         stmt = stmt.where(KbArticle.category == category)
-    rows = db.scalars(stmt.order_by(KbArticle.updated_at.desc())).all()
+    # Pinned first, then most recently updated.
+    rows = db.scalars(stmt.order_by(KbArticle.pinned.desc(), KbArticle.updated_at.desc())).all()
+    if tag:
+        rows = [a for a in rows if tag in (a.tags or [])]
     names = _user_names(db)
     cats = [c for (c,) in db.execute(
         select(KbArticle.category).where(KbArticle.category.is_not(None)).distinct()
     ).all()]
-    return [{
-        "id": a.id, "title": a.title, "category": a.category,
-        "excerpt": _excerpt(a.body),
+    all_tags = sorted({t for a in rows for t in (a.tags or [])})
+    items = [{
+        "id": a.id, "title": a.title, "category": a.category, "tags": a.tags or [],
+        "excerpt": _excerpt(a.body), "pinned": bool(a.pinned),
         "version_no": a.version_no,
+        "helpful_yes": a.helpful_yes or 0, "helpful_no": a.helpful_no or 0,
         "updated_by": names.get(a.updated_by_user_id),
         "updated_at": a.updated_at.isoformat() if a.updated_at else None,
         "archived": a.archived_at is not None,
-    } for a in rows], sorted(cats)
+    } for a in rows]
+    return items, sorted(cats), all_tags
 
 
-def get_article(db: Session, article_id: int) -> dict | None:
+def get_article(db: Session, article_id: int, *, user_id: int | None = None) -> dict | None:
     a = db.get(KbArticle, article_id)
     if a is None:
         return None
     names = _user_names(db)
+    my_vote = None
+    if user_id is not None:
+        fb = db.scalar(select(KbFeedback).where(
+            KbFeedback.article_id == article_id, KbFeedback.user_id == user_id
+        ))
+        my_vote = fb.helpful if fb else None
     return {
-        "id": a.id, "title": a.title, "category": a.category, "body": a.body,
-        "version_no": a.version_no,
+        "id": a.id, "title": a.title, "category": a.category, "tags": a.tags or [],
+        "body": a.body, "version_no": a.version_no, "pinned": bool(a.pinned),
+        "helpful_yes": a.helpful_yes or 0, "helpful_no": a.helpful_no or 0,
+        "my_vote": my_vote,
         "created_by": names.get(a.created_by_user_id),
         "updated_by": names.get(a.updated_by_user_id),
         "updated_at": a.updated_at.isoformat() if a.updated_at else None,
