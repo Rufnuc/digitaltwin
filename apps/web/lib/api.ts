@@ -1075,6 +1075,7 @@ export interface KbArticleListItem {
   id: number;
   title: string;
   category: string | null;
+  excerpt?: string;
   version_no: number;
   updated_by: string | null;
   updated_at: string | null;
