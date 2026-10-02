@@ -3,6 +3,7 @@ an immutable version snapshot and an activity-log entry, so changes are tracked 
 real time with a version number attached."""
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 
 from sqlalchemy import func, select
@@ -16,6 +17,16 @@ from app.services import audit
 def _user_names(db: Session) -> dict[int, str]:
     return {u.id: (u.full_name or u.email)
             for u in db.query(User.id, User.full_name, User.email).all()}
+
+
+def _excerpt(body: str, n: int = 160) -> str:
+    """Plain-text preview of an article body (markdown stripped)."""
+    text = body or ""
+    text = re.sub(r"^#{1,6}\s+", "", text, flags=re.M)      # headings
+    text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)      # links → text
+    text = re.sub(r"[*`>#]", "", text)                        # emphasis/code marks
+    text = re.sub(r"\s+", " ", text).strip()
+    return (text[:n] + "…") if len(text) > n else text
 
 
 def _snapshot(db: Session, art: KbArticle, *, user_id: int | None, note: str | None) -> None:
@@ -121,6 +132,7 @@ def list_articles(db: Session, *, q: str | None = None, category: str | None = N
     ).all()]
     return [{
         "id": a.id, "title": a.title, "category": a.category,
+        "excerpt": _excerpt(a.body),
         "version_no": a.version_no,
         "updated_by": names.get(a.updated_by_user_id),
         "updated_at": a.updated_at.isoformat() if a.updated_at else None,
