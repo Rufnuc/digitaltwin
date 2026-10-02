@@ -50,6 +50,7 @@ export default function KnowledgePage() {
   const [openId, setOpenId] = useState<number | null>(null);
   const [editing, setEditing] = useState<KbArticleDetail | "new" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isDev, setIsDev] = useState(false);
   const canEdit = roleAtLeast(getRole(), "MANAGER");
 
   const load = useCallback(async () => {
@@ -61,6 +62,7 @@ export default function KnowledgePage() {
       setItems(r.items);
       setCategories(r.categories);
       setAllTags(r.tags);
+      setIsDev(r.is_developer);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load");
@@ -94,7 +96,7 @@ export default function KnowledgePage() {
           onChanged={load}
         />
         {editing && (
-          <ArticleEditor article={editing === "new" ? null : editing} onClose={() => setEditing(null)}
+          <ArticleEditor isDev={isDev} article={editing === "new" ? null : editing} onClose={() => setEditing(null)}
             onSaved={async (id) => { setEditing(null); await load(); if (id) setOpenId(id); }} />
         )}
       </div>
@@ -182,7 +184,7 @@ export default function KnowledgePage() {
       </div>
 
       {editing && (
-        <ArticleEditor article={editing === "new" ? null : editing} onClose={() => setEditing(null)}
+        <ArticleEditor isDev={isDev} article={editing === "new" ? null : editing} onClose={() => setEditing(null)}
           onSaved={async (id) => { setEditing(null); await load(); if (id) setOpenId(id); }} />
       )}
     </div>
@@ -196,6 +198,9 @@ function Card({ a, onOpen, featured }: { a: KbArticleListItem; onOpen: () => voi
       <div className="flex items-start gap-2">
         {featured && <span className="text-amber-500">★</span>}
         <span className="font-semibold group-hover:underline">{a.title}</span>
+        {a.internal && (
+          <span className="ml-auto rounded bg-wash px-1.5 py-0.5 text-[10px] font-medium text-muted">🔒 Internal</span>
+        )}
       </div>
       <div className="mt-1 line-clamp-2 flex-1 text-[13px] text-muted">{a.excerpt || "Open to read."}</div>
       {a.tags.length > 0 && (
@@ -254,6 +259,7 @@ function ArticleReader({
         <div className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted">
           <span>{art.category || "General"}</span>
           {art.pinned && <span className="text-amber-500">★ Featured</span>}
+          {art.internal && <span className="text-muted">🔒 Internal (dev only)</span>}
         </div>
         <h1 className="text-2xl font-bold">{art.title}</h1>
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
@@ -329,14 +335,15 @@ function ArticleReader({
 }
 
 function ArticleEditor({
-  article, onClose, onSaved,
+  article, isDev, onClose, onSaved,
 }: {
-  article: KbArticleDetail | null; onClose: () => void; onSaved: (id?: number) => void;
+  article: KbArticleDetail | null; isDev: boolean; onClose: () => void; onSaved: (id?: number) => void;
 }) {
   const [title, setTitle] = useState(article?.title ?? "");
   const [category, setCategory] = useState(article?.category ?? "");
   const [tags, setTags] = useState((article?.tags ?? []).join(", "));
   const [body, setBody] = useState(article?.body ?? "");
+  const [internal, setInternal] = useState(article?.internal ?? false);
   const [note, setNote] = useState("");
   const [tab, setTab] = useState<"write" | "preview">("write");
   const [busy, setBusy] = useState(false);
@@ -370,10 +377,14 @@ function ArticleEditor({
       let saved: KbArticleDetail;
       if (article) {
         saved = await api.kbUpdateArticle(article.id, {
-          title, category: category || null, tags: tagList(), body, change_note: note || null,
+          title, category: category || null, tags: tagList(), body,
+          ...(isDev ? { internal } : {}), change_note: note || null,
         });
       } else {
-        saved = await api.kbCreateArticle({ title, body, category: category || null, tags: tagList() });
+        saved = await api.kbCreateArticle({
+          title, body, category: category || null, tags: tagList(),
+          ...(isDev ? { internal } : {}),
+        });
       }
       onSaved(saved.id);
     } catch (e) {
@@ -397,6 +408,13 @@ function ArticleEditor({
             <input value={tags} onChange={(e) => setTags(e.target.value)} placeholder="Tags (comma separated)"
               className="w-full rounded-lg border border-line px-3 py-2 text-sm" />
           </div>
+
+          {isDev && (
+            <label className="mb-2 flex items-center gap-2 rounded-lg border border-dashed border-line px-3 py-2 text-sm">
+              <input type="checkbox" checked={internal} onChange={(e) => setInternal(e.target.checked)} />
+              <span>🔒 Internal (developer only) — the business owner and staff won&apos;t see this article</span>
+            </label>
+          )}
 
           <div className="mb-1 flex items-center gap-2 text-xs">
             {(["write", "preview"] as const).map((t) => (

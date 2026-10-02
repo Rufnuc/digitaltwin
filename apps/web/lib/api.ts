@@ -488,13 +488,15 @@ export const api = {
     request<{ items: UserLocationPoint[] }>(`/locations/users/${userId}/history?limit=${limit}`),
   // ---- Knowledgebase ----
   kbArticles: (params = "") =>
-    request<{ items: KbArticleListItem[]; categories: string[]; tags: string[] }>(`/kb/articles${params}`),
+    request<{ items: KbArticleListItem[]; categories: string[]; tags: string[]; is_developer: boolean }>(
+      `/kb/articles${params}`,
+    ),
   kbArticle: (id: number) => request<KbArticleDetail>(`/kb/articles/${id}`),
-  kbCreateArticle: (body: { title: string; body: string; category?: string | null; tags?: string[] }) =>
+  kbCreateArticle: (body: { title: string; body: string; category?: string | null; tags?: string[]; internal?: boolean }) =>
     request<KbArticleDetail>("/kb/articles", { method: "POST", body: JSON.stringify(body) }),
   kbUpdateArticle: (
     id: number,
-    body: { title?: string; body?: string; category?: string | null; tags?: string[]; change_note?: string | null },
+    body: { title?: string; body?: string; category?: string | null; tags?: string[]; internal?: boolean; change_note?: string | null },
   ) => request<KbArticleDetail>(`/kb/articles/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   kbVersions: (id: number) => request<{ items: KbVersion[] }>(`/kb/articles/${id}/versions`),
   kbArchive: (id: number) =>
@@ -1091,6 +1093,7 @@ export interface KbArticleListItem {
   tags: string[];
   excerpt?: string;
   pinned: boolean;
+  internal: boolean;
   version_no: number;
   helpful_yes: number;
   helpful_no: number;

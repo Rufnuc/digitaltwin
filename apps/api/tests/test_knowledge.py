@@ -57,28 +57,43 @@ def test_staff_cannot_access_knowledgebase(client, auth_headers):
     assert r.status_code == 403
 
 
-def test_seed_kb_history_creates_dated_changelog_and_guides(client, auth_headers, db):
+def test_seed_guides_visible_changelog_internal(client, auth_headers, db):
+    from app.services import knowledgebase as kb
     from scripts.seed_kb_history import CHANGELOG_TITLE, COMMITS, GUIDES, seed
     res = seed(db)
     assert res[CHANGELOG_TITLE] == "seeded"
-    # Idempotent at the same content version: a second run is a no-op.
-    assert seed(db)[CHANGELOG_TITLE] == "current"
+    assert seed(db)[CHANGELOG_TITLE] == "current"  # idempotent
 
+    # The owner/manager (not a developer) sees the guides but NOT the dev changelog.
     h = auth_headers("MANAGER")
     arts = client.get("/api/v1/kb/articles?include_archived=true", headers=h).json()["items"]
     titles = {a["title"] for a in arts}
-    # Changelog + every how-to guide is present.
-    assert CHANGELOG_TITLE in titles
+    assert CHANGELOG_TITLE not in titles
     for title, _cat, _body in GUIDES:
         assert title in titles
 
-    changelog = next(a for a in arts if a["title"] == CHANGELOG_TITLE)
+    # A developer (is_dev=True at the service layer) does see the detailed changelog.
+    items, _cats, _tags = kb.list_articles(db, include_archived=True, is_dev=True)
+    changelog = next(a for a in items if a["title"] == CHANGELOG_TITLE)
+    assert changelog["internal"] is True
     assert changelog["version_no"] == len(COMMITS)
-    versions = client.get(f"/api/v1/kb/articles/{changelog['id']}/versions", headers=h).json()["items"]
-    assert len(versions) == len(COMMITS)
-    # Versions carry the REAL commit dates and a detailed body.
+    versions = kb.list_versions(db, changelog["id"])
     assert min(v["changed_at"][:10] for v in versions) == "2026-09-15"
-    assert all(len(v["body"]) > 20 for v in versions)  # detailed, not one-liners
+    assert all(len(v["body"]) > 20 for v in versions)
+
+
+def test_internal_article_hidden_from_non_developer(db):
+    from app.services import knowledgebase as kb
+    art = kb.create_article(db, title="Dev notes", body="secret build notes",
+                            category="Build History", user_id=1, internal=True)
+    # Owner/staff (not dev): not in list, not readable.
+    items, _c, _t = kb.list_articles(db, is_dev=False)
+    assert all(a["id"] != art.id for a in items)
+    assert kb.get_article(db, art.id, is_dev=False) is None
+    # Developer: visible and readable.
+    items_dev, _c, _t = kb.list_articles(db, is_dev=True)
+    assert any(a["id"] == art.id for a in items_dev)
+    assert kb.get_article(db, art.id, is_dev=True) is not None
 
 
 def test_seed_does_not_clobber_human_articles(client, auth_headers, db):

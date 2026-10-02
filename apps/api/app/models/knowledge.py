@@ -31,6 +31,9 @@ class KbArticle(Base, TimestampMixin):
     body: Mapped[str] = mapped_column(Text, default="")
     version_no: Mapped[int] = mapped_column(Integer, default=1)
     pinned: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    # Developer-only: visible to vendor/developer accounts, never to the business
+    # owner or staff (e.g. the build changelog).
+    internal: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     helpful_yes: Mapped[int] = mapped_column(Integer, default=0)
     helpful_no: Mapped[int] = mapped_column(Integer, default=0)
     # Marks an article created by the content seed (and which seed version), so the
