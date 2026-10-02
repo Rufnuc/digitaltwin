@@ -78,6 +78,19 @@ export default function PosPage() {
                 </div>
               </div>
 
+              {t.flags.length > 0 && (
+                <div className="mt-2 space-y-1">
+                  {t.flags.map((f, i) => (
+                    <div
+                      key={i}
+                      className="rounded border border-yellow-500/40 bg-yellow-500/10 px-2 py-1 text-[11px] text-yellow-800 dark:text-yellow-300"
+                    >
+                      ⚠ {f.message}
+                    </div>
+                  ))}
+                </div>
+              )}
+
               {t.suggestions.length > 0 ? (
                 <div className="mt-3">
                   <div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted">

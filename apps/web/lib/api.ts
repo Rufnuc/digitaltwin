@@ -1045,6 +1045,10 @@ export interface PosSuggestion {
   balance: number;
   score: number;
 }
+export interface PosFlag {
+  type: string;
+  message: string;
+}
 export interface PosUnmatched {
   id: number;
   provider: string;
@@ -1055,6 +1059,7 @@ export interface PosUnmatched {
   occurred_at: string | null;
   received_at: string | null;
   suggestions: PosSuggestion[];
+  flags: PosFlag[];
 }
 export interface InvoicePayment {
   id: number;
