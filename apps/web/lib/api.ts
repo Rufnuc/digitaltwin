@@ -478,7 +478,7 @@ export const api = {
   posIgnore: (txnId: number) =>
     request<Record<string, unknown>>(`/pos/transactions/${txnId}/ignore`, { method: "POST" }),
   // ---- GIS / location tracking ----
-  locationPing: (body: { lat: number; lng: number; accuracy?: number | null }) =>
+  locationPing: (body: { lat: number; lng: number; accuracy?: number | null; address?: string | null }) =>
     request<Record<string, unknown>>("/locations/ping", {
       method: "POST",
       body: JSON.stringify(body),
@@ -1099,12 +1099,14 @@ export interface UserLocationLatest {
   lat: number;
   lng: number;
   accuracy: number | null;
+  address: string | null;
   recorded_at: string | null;
 }
 export interface UserLocationPoint {
   lat: number;
   lng: number;
   accuracy: number | null;
+  address: string | null;
   recorded_at: string | null;
 }
 export interface PosFlag {

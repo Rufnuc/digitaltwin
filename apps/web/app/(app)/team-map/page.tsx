@@ -82,6 +82,7 @@ export default function TeamMapPage() {
                     }`}
                   >
                     <div className="font-medium">{p.user_name}</div>
+                    {p.address && <div className="text-[11px] text-ink">📍 {p.address}</div>}
                     <div className="text-[11px] text-muted">
                       {p.role}
                       {p.recorded_at
