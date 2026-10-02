@@ -105,6 +105,22 @@ def test_duplicate_charge_is_flagged(db, invoice):
     assert flagged, "expected a possible_duplicate flag"
 
 
+def test_unusually_large_amount_is_flagged(db, invoice):
+    # A spread of small, normal sales so there's a baseline.
+    for i in range(6):
+        db.add(Invoice(invoice_number=f"INV-NORM-{i}", invoice_date=date(2026, 3, 1),
+                       customer_id=invoice.customer_id, subtotal=5000, total=5000,
+                       payment_status="PAID", version_no=1))
+    db.commit()
+    # A POS charge far larger than any recent sale.
+    row = reconcile.ingest_transaction(db, _txn("BIG", 500000))
+    db.refresh(row)
+    assert row.status == "UNMATCHED"
+    unmatched = reconcile.list_unmatched(db)
+    me = next(u for u in unmatched if u["id"] == row.id)
+    assert any(f["type"] == "unusually_large" for f in me["flags"])
+
+
 def test_manual_assign_records_payment(db, invoice):
     inv2 = Invoice(invoice_number="INV-POS-3", invoice_date=date(2026, 3, 1),
                    customer_id=invoice.customer_id, subtotal=5000, total=5000,
