@@ -16,7 +16,7 @@ from app.db.session import SessionLocal
 from app.models.knowledge import KbArticle, KbArticleVersion
 from app.models.user import User
 
-CONTENT_VERSION = "2"
+CONTENT_VERSION = "3"
 CHANGELOG_TITLE = "Development Changelog"
 
 # (ISO timestamp, short title, detailed description) — the real commit history.
@@ -221,10 +221,16 @@ GUIDES: list[tuple[str, str, str]] = [
      "permission once."),
     ("How to use the Knowledgebase", "How-to",
      "# Knowledgebase\n\n"
-     "Under **Knowledgebase** (managers only):\n"
-     "- **Articles**: write guides, policies and notes. Every save creates a new version "
-     "number; open **Version history** to view or **restore** any past version.\n"
-     "- **Live changes**: a feed of every change across the whole app, newest first."),
+     "Under **Knowledgebase** (managers only):\n\n"
+     "- **Search** or browse by topic in the left sidebar; filter by **#tags**.\n"
+     "- **Write** an article with the **+ New article** button — headings, bold, lists, "
+     "links and **images** are supported (use **Insert image**). Use **Preview** to check it.\n"
+     "- Every save adds a numbered **version**; open **History** on an article to see what "
+     "changed and when.\n"
+     "- **★ Feature** important articles so they pin to the top, and tag them for easy "
+     "finding.\n"
+     "- Readers can mark an article **helpful** so you know which guides work.\n\n"
+     "For a full log of every change across the whole app, see the **Activity Log**."),
     ("How to refresh Market Intelligence", "How-to",
      "# Market Intelligence\n\n"
      "Click **Refresh from sources** to pull Nigerian economic indicators, FX and business "

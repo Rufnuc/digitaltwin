@@ -7,8 +7,15 @@ function esc(s: string): string {
   return s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c] as string);
 }
 
-function inline(s: string): string {
+type Resolve = (url: string) => string;
+
+function inline(s: string, resolve: Resolve): string {
   let out = esc(s);
+  // Images first (so the link rule below doesn't swallow the ![alt](url) form).
+  out = out.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (_m, alt: string, url: string) => {
+    const safe = resolve(url).replace(/"/g, "&quot;");
+    return `<img src="${safe}" alt="${alt}" loading="lazy"/>`;
+  });
   out = out.replace(
     /\[([^\]]+)\]\(([^)\s]+)\)/g,
     '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>',
@@ -19,7 +26,8 @@ function inline(s: string): string {
   return out;
 }
 
-export function renderMarkdown(md: string): string {
+export function renderMarkdown(md: string, resolveSrc: Resolve = (u) => u): string {
+  const inl = (s: string) => inline(s, resolveSrc);
   const lines = (md || "").replace(/\r\n/g, "\n").split("\n");
   const html: string[] = [];
   let i = 0;
@@ -27,7 +35,7 @@ export function renderMarkdown(md: string): string {
 
   const flushPara = () => {
     if (para.length) {
-      html.push(`<p>${para.map(inline).join("<br/>")}</p>`);
+      html.push(`<p>${para.map(inl).join("<br/>")}</p>`);
       para = [];
     }
   };
@@ -46,7 +54,7 @@ export function renderMarkdown(md: string): string {
     if (h) {
       flushPara();
       const lvl = h[1].length;
-      html.push(`<h${lvl}>${inline(h[2])}</h${lvl}>`);
+      html.push(`<h${lvl}>${inl(h[2])}</h${lvl}>`);
       i++;
       continue;
     }
@@ -58,7 +66,7 @@ export function renderMarkdown(md: string): string {
         quote.push(lines[i].replace(/^>\s?/, ""));
         i++;
       }
-      html.push(`<blockquote>${quote.map(inline).join("<br/>")}</blockquote>`);
+      html.push(`<blockquote>${quote.map(inl).join("<br/>")}</blockquote>`);
       continue;
     }
 
@@ -72,11 +80,11 @@ export function renderMarkdown(md: string): string {
         const l = lines[i];
         const m = l.match(isUl ? /^[-*]\s+(.*)$/ : /^\d+\.\s+(.*)$/);
         if (m) {
-          items.push(inline(m[1].trimEnd()));
+          items.push(inl(m[1].trimEnd()));
           i++;
         } else if (/^\s+\S/.test(l) && items.length) {
           // continuation line indented under the current item
-          items[items.length - 1] += "<br/>" + inline(l.trim());
+          items[items.length - 1] += "<br/>" + inl(l.trim());
           i++;
         } else {
           break;

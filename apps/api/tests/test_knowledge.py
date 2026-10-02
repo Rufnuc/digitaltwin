@@ -1,35 +1,45 @@
-"""Knowledgebase: versioned articles, restore, RBAC, activity logging."""
+"""Knowledgebase: versioned articles, tags, pin, feedback, RBAC, activity logging."""
 from __future__ import annotations
 
 from app.models.system import AuditLog
 
 
-def test_create_edit_versions_and_restore(client, auth_headers):
+def test_create_edit_versions_tags(client, auth_headers):
     h = auth_headers("MANAGER")
-    # Create.
     r = client.post("/api/v1/kb/articles", headers=h,
-                    json={"title": "How to sell", "body": "v1 body", "category": "Sales"})
+                    json={"title": "How to sell", "body": "v1 body", "category": "Sales",
+                          "tags": ["sales", "pos"]})
     assert r.status_code == 201, r.text
     art = r.json()
     aid = art["id"]
     assert art["version_no"] == 1
+    assert art["tags"] == ["sales", "pos"]
 
-    # Edit → v2.
     r = client.patch(f"/api/v1/kb/articles/{aid}", headers=h,
                      json={"body": "v2 body", "change_note": "clarified step 2"})
     assert r.status_code == 200
     assert r.json()["version_no"] == 2
 
-    # Version history has both, newest first.
     versions = client.get(f"/api/v1/kb/articles/{aid}/versions", headers=h).json()["items"]
     assert [v["version_no"] for v in versions] == [2, 1]
 
-    # Restore v1 → becomes v3 with v1's body.
-    r = client.post(f"/api/v1/kb/articles/{aid}/restore/1", headers=h)
-    assert r.status_code == 200
-    body = r.json()
-    assert body["version_no"] == 3
-    assert body["body"] == "v1 body"
+
+def test_pin_and_feedback(client, auth_headers):
+    h = auth_headers("MANAGER")
+    aid = client.post("/api/v1/kb/articles", headers=h,
+                      json={"title": "Pinned doc", "body": "x"}).json()["id"]
+    # Pin → appears in list as pinned.
+    assert client.post(f"/api/v1/kb/articles/{aid}/pin", headers=h, json={"pinned": True}).status_code == 200
+    lst = client.get("/api/v1/kb/articles", headers=h).json()
+    assert any(a["id"] == aid and a["pinned"] for a in lst["items"])
+
+    # Feedback: yes, then change to no — counts stay consistent (one vote per user).
+    r = client.post(f"/api/v1/kb/articles/{aid}/feedback", headers=h, json={"helpful": True}).json()
+    assert r["helpful_yes"] == 1 and r["helpful_no"] == 0
+    r = client.post(f"/api/v1/kb/articles/{aid}/feedback", headers=h, json={"helpful": False}).json()
+    assert r["helpful_yes"] == 0 and r["helpful_no"] == 1
+    detail = client.get(f"/api/v1/kb/articles/{aid}", headers=h).json()
+    assert detail["my_vote"] is False
 
 
 def test_edits_are_written_to_activity_log(client, auth_headers, db):
