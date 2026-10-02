@@ -22,4 +22,4 @@ RUN mkdir -p /app/storage
 # The platform provides $PORT. On boot: migrate, then (best-effort, idempotent)
 # create the first OWNER from OWNER_EMAIL/OWNER_PASSWORD if the DB has no users, then serve.
 ENV PORT=8000 ENVIRONMENT=production
-CMD ["sh", "-c", "alembic upgrade head && { python -m scripts.create_owner || true; } && uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]
+CMD ["sh", "-c", "alembic upgrade head && { python -m scripts.create_owner || true; } && { python -m scripts.seed_kb_history || true; } && uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]
