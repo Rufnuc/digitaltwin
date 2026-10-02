@@ -14,9 +14,10 @@ from sqlalchemy import select
 
 from app.db.session import SessionLocal
 from app.models.knowledge import KbArticle, KbArticleVersion
+from scripts.kb_guides import GUIDES
 from app.models.user import User
 
-CONTENT_VERSION = "4"
+CONTENT_VERSION = "5"
 CHANGELOG_TITLE = "Development Changelog"
 
 # (ISO timestamp, short title, detailed description) — the real commit history.
@@ -173,70 +174,6 @@ COMMITS: list[tuple[str, str, str]] = [
      "this changelog with a detailed description of every change."),
 ]
 
-# How-to guides (title, category, body). Each is seeded as a single-version article.
-GUIDES: list[tuple[str, str, str]] = [
-    ("How to record a sale", "How-to",
-     "# Record a sale\n\n"
-     "1. Go to **New Sale** (or Invoices → New Sale).\n"
-     "2. Choose the customer (or type a new name to create one on the fly) and the sale "
-     "location (Home/Office).\n"
-     "3. Add each item: pick the product, quantity and unit price. Stock on hand shows "
-     "beside each line.\n"
-     "4. Add tax/discount/shipping if any, then **Record sale & draw stock**.\n\n"
-     "Stock is drawn from the warehouse (oldest batch first) and every unit is traced to "
-     "the buyer."),
-    ("How to take a POS (Moniepoint) payment", "How-to",
-     "# Take a POS payment\n\n"
-     "1. Open the invoice and click **Charge on POS (Moniepoint)**.\n"
-     "2. Enter the amount (full or part). Optionally enter the terminal ID and **Push to "
-     "terminal** to make it pop up on the machine; or use **Expect only** and charge on the "
-     "terminal directly.\n"
-     "3. When the customer pays, the transaction links to the invoice automatically.\n\n"
-     "Anything that doesn't link appears under **POS Payments** with suggestions — one tap "
-     "to assign. Possible duplicates and unusually large charges are flagged."),
-    ("How to void an invoice (and refund)", "How-to",
-     "# Void an invoice\n\n"
-     "1. Open the invoice and click **Void invoice** (managers and above).\n"
-     "2. Enter a reason.\n\n"
-     "Voiding returns the stock to your warehouse, **refunds any money the customer paid**, "
-     "and removes the invoice from sales and receivables. The record is kept and marked "
-     "VOID — it is never deleted."),
-    ("How to process a customer return", "How-to",
-     "# Process a return\n\n"
-     "1. Open the invoice and click **Return items**.\n"
-     "2. Choose where to put the returned goods, enter the quantity returned per item, and "
-     "a reason.\n\n"
-     "The goods go back into stock and the invoice (and what the customer owes) is reduced. "
-     "If the customer had already paid, the balance shows **Refund due**."),
-    ("How to print an invoice for a customer", "How-to",
-     "# Print an invoice\n\n"
-     "Open the invoice and choose **Print for customer** (clean copy, no internal edit "
-     "history) or **Print (with history)** for your own records."),
-    ("How to use the Team Map", "How-to",
-     "# Team Map\n\n"
-     "Managers can see where each team member was last seen (as an address) while logged "
-     "in on a company device, under **Team Map**. Click a person to see their recent "
-     "movement trail. Location changes are also recorded in the **Activity Log**.\n\n"
-     "Note: a web app can only read location while it is open and after the device grants "
-     "permission once."),
-    ("How to use the Knowledgebase", "How-to",
-     "# Knowledgebase\n\n"
-     "Under **Knowledgebase** (managers only):\n\n"
-     "- **Search** or browse by topic in the left sidebar; filter by **#tags**.\n"
-     "- **Write** an article with the **+ New article** button — headings, bold, lists, "
-     "links and **images** are supported (use **Insert image**). Use **Preview** to check it.\n"
-     "- Every save adds a numbered **version**; open **History** on an article to see what "
-     "changed and when.\n"
-     "- **★ Feature** important articles so they pin to the top, and tag them for easy "
-     "finding.\n"
-     "- Readers can mark an article **helpful** so you know which guides work.\n\n"
-     "For a full log of every change across the whole app, see the **Activity Log**."),
-    ("How to refresh Market Intelligence", "How-to",
-     "# Market Intelligence\n\n"
-     "Click **Refresh from sources** to pull Nigerian economic indicators, FX and business "
-     "news (kept with their source and date). If it reports a problem, click **Test data "
-     "sources** to see which source your server can and can't reach."),
-]
 
 
 def _dt(iso: str) -> datetime:
