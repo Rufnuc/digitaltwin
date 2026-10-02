@@ -308,6 +308,25 @@ def detect_flags(db: Session, row: PosTransaction, suggestions: list[dict]) -> l
             "message": "No open invoice matches this amount — check it's a real sale "
                        "before assigning.",
         })
+
+    # Unusually large: the amount dwarfs the business's recent sales — a likely
+    # mistake or fraud (e.g. an extra zero, or a skimmed charge).
+    totals = [
+        float(t or 0) for (t,) in db.execute(
+            select(Invoice.total).where(
+                Invoice.voided_at.is_(None), Invoice.total > 0
+            ).order_by(Invoice.id.desc()).limit(100)
+        ).all()
+    ]
+    if len(totals) >= 5:
+        avg = sum(totals) / len(totals)
+        threshold = max(3 * avg, 1.5 * max(totals))
+        if amt > threshold:
+            flags.append({
+                "type": "unusually_large",
+                "message": f"Unusually large: {amt:,.0f} is well above your recent sales "
+                           f"(typical ~{avg:,.0f}). Double-check before assigning.",
+            })
     return flags
 
 
