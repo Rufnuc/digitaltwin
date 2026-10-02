@@ -19,6 +19,9 @@ class KbArticle(Base, TimestampMixin):
     category: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
     body: Mapped[str] = mapped_column(Text, default="")
     version_no: Mapped[int] = mapped_column(Integer, default=1)
+    # Marks an article created by the content seed (and which seed version), so the
+    # seed can refresh its own articles on deploy without touching human-written ones.
+    seed_tag: Mapped[str | None] = mapped_column(String(32), index=True, nullable=True)
     created_by_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     updated_by_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     archived_at: Mapped[datetime | None] = mapped_column(

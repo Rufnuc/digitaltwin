@@ -85,6 +85,13 @@ class Settings(BaseSettings):
     GEO_MIN_MOVE_METERS: float = 25.0
     GEO_LOG_MOVE_METERS: float = 100.0
     GEO_MIN_INTERVAL_SECONDS: int = 300
+    # Reverse-geocode coordinates to a human address (so the map/activity log read as
+    # places, not numbers). Uses OpenStreetMap Nominatim (free, no key). The browser
+    # resolves the address and sends it with the ping; the server falls back to this
+    # when none is supplied. Set an email per Nominatim's usage policy.
+    GEO_REVERSE_GEOCODE: bool = True
+    GEO_GEOCODER_URL: str = "https://nominatim.openstreetmap.org/reverse"
+    GEO_GEOCODER_EMAIL: str = ""
 
     # POS reconciliation (card terminals). "moniepoint" enables the Moniepoint
     # webhook + push-to-terminal adapter; "none" disables auto-receiving (manual only).

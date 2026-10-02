@@ -17,6 +17,7 @@ class PingIn(BaseModel):
     lat: float = Field(ge=-90, le=90)
     lng: float = Field(ge=-180, le=180)
     accuracy: float | None = None
+    address: str | None = Field(None, max_length=512)
 
 
 @router.post("/ping")
@@ -29,7 +30,7 @@ def ping(
     if not settings.GEO_TRACKING_ENABLED:
         return {"status": "DISABLED"}
     return locations.record_ping(db, user=user, lat=payload.lat, lng=payload.lng,
-                                 accuracy=payload.accuracy)
+                                 accuracy=payload.accuracy, address=payload.address)
 
 
 @router.get("/latest")

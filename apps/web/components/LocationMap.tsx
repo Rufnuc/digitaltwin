@@ -61,7 +61,9 @@ export function LocationMap({
       })
         .bindPopup(
           `<div style="font-size:12px;line-height:1.5"><strong>${esc(p.user_name)}</strong>` +
-            `<br/>${esc(p.role)}<br/>last seen ${esc(when)}` +
+            `<br/>${esc(p.role)}` +
+            (p.address ? `<br/>📍 ${esc(p.address)}` : "") +
+            `<br/>last seen ${esc(when)}` +
             `<br/>±${p.accuracy != null ? Math.round(p.accuracy) + "m" : "—"}</div>`,
         )
         .on("click", () => onSelect(p.user_id))

@@ -21,6 +21,7 @@ class UserLocation(Base):
     lat: Mapped[float] = mapped_column(Float, nullable=False)
     lng: Mapped[float] = mapped_column(Float, nullable=False)
     accuracy: Mapped[float | None] = mapped_column(Float, nullable=True)  # metres
+    address: Mapped[str | None] = mapped_column(String(512), nullable=True)  # reverse-geocoded
     source: Mapped[str] = mapped_column(String(16), default="web")
     recorded_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), index=True

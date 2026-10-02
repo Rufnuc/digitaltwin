@@ -15,15 +15,33 @@ export function LocationTracker() {
     if (typeof navigator === "undefined" || !navigator.geolocation) return;
     if (!getToken()) return; // only when logged in
 
-    const send = (pos: GeolocationPosition) => {
+    // Resolve a readable address in the browser (uses the device's own network, so it
+    // works even if the server can't reach the internet). Best-effort; null on failure.
+    const geocode = async (lat: number, lng: number): Promise<string | null> => {
+      try {
+        const r = await fetch(
+          `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=jsonv2&zoom=18`,
+          { headers: { Accept: "application/json" } },
+        );
+        if (!r.ok) return null;
+        const j = await r.json();
+        return j.display_name ?? null;
+      } catch {
+        return null;
+      }
+    };
+
+    const send = async (pos: GeolocationPosition) => {
       const now = Date.now();
       if (now - lastSent.current < MIN_SEND_MS) return;
       lastSent.current = now;
+      const address = await geocode(pos.coords.latitude, pos.coords.longitude);
       api
         .locationPing({
           lat: pos.coords.latitude,
           lng: pos.coords.longitude,
           accuracy: pos.coords.accuracy ?? null,
+          address,
         })
         .catch(() => {
           /* offline / not permitted — ignore */
